@@ -66,6 +66,8 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
       return;
     }
 
+    log.debug("Sending request: {}\n{}", context, request);
+
     String userAgent = context.getAttribute(ATTRIBUTE_USER_AGENT_SPECIFIED, String.class);
 
     if (!request.getURI().getHost().contains("googlevideo")) {
