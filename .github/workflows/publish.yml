@@ -9,6 +9,7 @@ jobs:
     env:
       MAVEN_USERNAME: ${{ vars.MAVEN_USERNAME }}
       MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+      MAVEN_REPOSITORY: "https://maven.kikkia.dev/"
     steps:
       - name: Checkout
         uses: actions/checkout@v3
