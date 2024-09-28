@@ -24,7 +24,7 @@ dependencies {
     testImplementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.19.0")
 }
 
-mavenpublishing {
+mavenPublishing {
     repositories {
         maven {
             url "https://maven.kikkia.dev/repository"

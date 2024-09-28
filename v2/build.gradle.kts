@@ -23,7 +23,7 @@ dependencies {
     testImplementation(libs.lavaplayer.v2)
 }
 
-mavenpublishing {
+mavenPublishing {
     repositories {
         maven {
             url "https://maven.kikkia.dev/repository"
