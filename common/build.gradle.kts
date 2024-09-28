@@ -27,7 +27,7 @@ dependencies {
 mavenPublishing {
     repositories {
         maven {
-            url "https://maven.kikkia.dev/repository"
+            url = uri("https://repo.my-domain.com/releases")
         }
     }
 }
