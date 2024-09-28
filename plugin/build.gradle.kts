@@ -37,9 +37,20 @@ java {
 }
 
 mavenPublishing {
-    coordinates("dev.lavalink.youtube", "youtube-plugin", version.toString())
-    configure(JavaLibrary(JavadocJar.None(), sourcesJar = false))
+    publications {
+        maven(MavenPublication) {
+            groupId "dev.lavalink.youtube" // Assuming your repo uses this groupId
+            artifactId "youtube-plugin"
+            version version.toString() // Add closing parenthesis
+        }
+    }
+    repositories {
+        maven {
+            url "https://maven.kikkia.dev/repository"
+        }
+    }
 }
+
 
 tasks {
     processResources {

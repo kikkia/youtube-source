@@ -23,8 +23,12 @@ dependencies {
     testImplementation(libs.lavaplayer.v2)
 }
 
-mavenPublishing {
-    configure(JavaLibrary(JavadocJar.Javadoc()))
+mavenpublishing {
+    repositories {
+        maven {
+            url "https://maven.kikkia.dev/repository"
+        }
+    }
 }
 
 tasks {
