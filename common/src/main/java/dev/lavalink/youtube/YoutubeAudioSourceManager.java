@@ -197,6 +197,7 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
 
         try (HttpInterface httpInterface = httpInterfaceManager.getInterface()) {
             Router router = getRouter(httpInterface, reference.identifier);
+            httpInterface.getContext().setAttribute(YoutubeOauth2Handler.OAUTH_INJECT_CONTEXT_ATTRIBUTE, reference.identifier);
 
             if (router == null) {
                 return null;

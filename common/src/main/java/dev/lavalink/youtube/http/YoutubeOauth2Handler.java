@@ -34,6 +34,7 @@ public class YoutubeOauth2Handler {
     private static final String CLIENT_SECRET = "SboVhoG9s0rNafixCSGGKXAT";
     private static final String SCOPES = "http://gdata.youtube.com https://www.googleapis.com/auth/youtube";
     private static final String OAUTH_FETCH_CONTEXT_ATTRIBUTE = "yt-oauth";
+    public static final String OAUTH_INJECT_CONTEXT_ATTRIBUTE = "yt-oauth-injection";
 
     private final HttpInterfaceManager httpInterfaceManager;
 
@@ -80,6 +81,15 @@ public class YoutubeOauth2Handler {
         return context.getAttribute(OAUTH_FETCH_CONTEXT_ATTRIBUTE) == Boolean.TRUE;
     }
 
+    public String getOauthInjection(HttpClientContext context) {
+        Object attribute = context.getAttribute(OAUTH_INJECT_CONTEXT_ATTRIBUTE);
+
+        if (attribute != null && attribute instanceof String) {
+            return (String) attribute;
+        }
+        return "";
+    }
+
     /**
      * Makes a request to YouTube for a device code that users can then authorise to allow
      * this source to make requests using an account access token.
@@ -103,7 +113,7 @@ public class YoutubeOauth2Handler {
         log.info("==================================================");
 
         // Should this be a daemon?
-        new Thread(() -> pollForToken(deviceCode, interval == 0 ? 5000 : interval), "youtube-source-token-poller").start();
+        //new Thread(() -> pollForToken(deviceCode, interval == 0 ? 5000 : interval), "youtube-source-token-poller").start();
     }
 
     private JsonObject fetchDeviceCode() {
