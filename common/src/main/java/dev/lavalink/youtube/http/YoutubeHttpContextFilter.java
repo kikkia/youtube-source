@@ -70,7 +70,11 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
 
     if (!request.getURI().getHost().contains("googlevideo")) {
       String oauthInjection = oauth2Handler.getOauthInjection(context);
-      log.info("Oauth Injection: {} ---- {}", oauthInjection, request.getURI());
+      String toPrint = "";
+      if (oauthInjection != null) {
+        toPrint = oauthInjection.substring(0, 8);
+      }
+      log.info("Oauth Injection: {} ---- {}", toPrint, request.getURI());
       if (userAgent != null) {
         request.setHeader("User-Agent", userAgent);
 
@@ -80,8 +84,9 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
         context.removeAttribute(ATTRIBUTE_VISITOR_DATA_SPECIFIED);
         context.removeAttribute(ATTRIBUTE_USER_AGENT_SPECIFIED);
       }
-
-      oauth2Handler.applyToken(request);
+      if (oauthInjection != null && oauthInjection != "") {
+        oauth2Handler.applyToken(request, oauthInjection);
+      }
     }
 
 //    try {

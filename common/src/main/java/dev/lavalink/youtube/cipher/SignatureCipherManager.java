@@ -169,16 +169,16 @@ public class SignatureCipherManager {
     // No cache due to changing oauth tokens between players.
     // TODO: Explore caching based on oauth token
 
-    return getPlayerScript(httpInterface);
-//    if (cachedPlayerScript == null || System.currentTimeMillis() >= cachedPlayerScript.expireTimestampMs) {
-//      synchronized (cipherLoadLock) {
-//        if (cachedPlayerScript == null || System.currentTimeMillis() >= cachedPlayerScript.expireTimestampMs) {
-//          return getPlayerScript(httpInterface);
-//        }
-//      }
-//    }
-//
-//    return cachedPlayerScript;
+    //return getPlayerScript(httpInterface);
+    if (cachedPlayerScript == null || System.currentTimeMillis() >= cachedPlayerScript.expireTimestampMs) {
+      synchronized (cipherLoadLock) {
+        if (cachedPlayerScript == null || System.currentTimeMillis() >= cachedPlayerScript.expireTimestampMs) {
+          return getPlayerScript(httpInterface);
+        }
+      }
+    }
+
+    return cachedPlayerScript;
   }
 
   public SignatureCipher getCipherScript(@NotNull HttpInterface httpInterface,

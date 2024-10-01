@@ -66,7 +66,7 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
     protected final Client[] clients;
 
     protected YoutubeHttpContextFilter contextFilter;
-    protected YoutubeOauth2Handler oauth2Handler;
+    public YoutubeOauth2Handler oauth2Handler;
     protected SignatureCipherManager cipherManager;
 
     public YoutubeAudioSourceManager() {

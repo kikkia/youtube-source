@@ -9,6 +9,7 @@ import com.sedmelluq.discord.lavaplayer.tools.ExceptionTools;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpClientTools;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterfaceManager;
+import org.apache.http.Header;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -20,6 +21,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -36,6 +39,8 @@ public class YoutubeOauth2Handler {
     private static final String OAUTH_FETCH_CONTEXT_ATTRIBUTE = "yt-oauth";
     public static final String OAUTH_INJECT_CONTEXT_ATTRIBUTE = "yt-oauth-injection";
 
+    private final ConcurrentMap<String, String> oauthInjectionCache;
+
     private final HttpInterfaceManager httpInterfaceManager;
 
     private boolean enabled;
@@ -47,6 +52,7 @@ public class YoutubeOauth2Handler {
 
     public YoutubeOauth2Handler(HttpInterfaceManager httpInterfaceManager) {
         this.httpInterfaceManager = httpInterfaceManager;
+        this.oauthInjectionCache = new ConcurrentHashMap<>();
     }
 
     public void setRefreshToken(@Nullable String refreshToken, boolean skipInitialization) {
@@ -82,10 +88,9 @@ public class YoutubeOauth2Handler {
     }
 
     public String getOauthInjection(HttpClientContext context) {
-        Object attribute = context.getAttribute(OAUTH_INJECT_CONTEXT_ATTRIBUTE);
-
-        if (attribute != null && attribute instanceof String) {
-            return (String) attribute;
+        Object ident = context.getAttribute(OAUTH_INJECT_CONTEXT_ATTRIBUTE);
+        if (ident != null && ident instanceof String) {
+            return oauthInjectionCache.get((String) ident);
         }
         return "";
     }
@@ -131,7 +136,6 @@ public class YoutubeOauth2Handler {
         HttpPost request = new HttpPost("https://www.youtube.com/o/oauth2/device/code");
         StringEntity body = new StringEntity(requestJson, ContentType.APPLICATION_JSON);
         request.setEntity(body);
-
         try (HttpInterface httpInterface = getHttpInterface();
              CloseableHttpResponse response = httpInterface.execute(request)) {
             HttpClientTools.assertSuccessWithContent(response, "device code fetch");
@@ -263,38 +267,11 @@ public class YoutubeOauth2Handler {
         log.debug("OAuth access token is {} and refresh token is {}. Access token expires in {} seconds.", accessToken, refreshToken, tokenLifespan);
     }
 
-    public void applyToken(HttpUriRequest request) {
-        if (!enabled || DataFormatTools.isNullOrEmpty(refreshToken)) {
-            return;
-        }
-
-        if (shouldRefreshAccessToken()) {
-            log.debug("Access token has expired, refreshing...");
-
-            try {
-                refreshAccessToken(false);
-            } catch (Throwable t) {
-                if (++fetchErrorLogCount <= 3) {
-                    // log fetch errors up to 3 consecutive times to avoid spamming logs. in theory requests can still be made
-                    // without an access token, but they are less likely to succeed. regardless, we shouldn't bloat a
-                    // user's logs just in case YT changed something and broke oauth integration.
-                    log.error("Refreshing YouTube access token failed", t);
-                } else {
-                    log.debug("Refreshing YouTube access token failed", t);
-                }
-
-                // retry in 15 seconds to avoid spamming YouTube with requests.
-                tokenExpires = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(15);
-                return;
-            }
-
-            fetchErrorLogCount = 0;
-        }
-
+    public void applyToken(HttpUriRequest request, String token) {
         // check again to ensure updating worked as expected.
-        if (accessToken != null && tokenType != null && System.currentTimeMillis() < tokenExpires) {
-            log.debug("Using oauth authorization header with value \"{} {}\"", tokenType, accessToken);
-            request.setHeader("Authorization", String.format("%s %s", tokenType, accessToken));
+        if (token != "") {
+            log.info("Using oauth authorization header with value \"{} {}\"", "Bearer", token);
+            request.setHeader("Authorization", String.format("%s %s", "Bearer", token));
         }
     }
 
@@ -302,5 +279,9 @@ public class YoutubeOauth2Handler {
         HttpInterface httpInterface = httpInterfaceManager.getInterface();
         httpInterface.getContext().setAttribute(OAUTH_FETCH_CONTEXT_ATTRIBUTE, true);
         return httpInterface;
+    }
+
+    public void injectOauthToken(String ident, String token) {
+        oauthInjectionCache.put(ident, token);
     }
 }
