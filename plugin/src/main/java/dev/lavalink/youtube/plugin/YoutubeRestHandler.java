@@ -185,7 +185,7 @@ public class YoutubeRestHandler {
         }
     }
 
-    @PostMapping("/youtube/oauth")
+    @PostMapping("/oauth")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void updateYoutubeConfig(@RequestBody OauthInjectRequest config) {
         YoutubeAudioSourceManager source = getYoutubeSource();

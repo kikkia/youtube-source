@@ -89,6 +89,7 @@ public class YoutubeOauth2Handler {
 
     public String getOauthInjection(HttpClientContext context) {
         Object ident = context.getAttribute(OAUTH_INJECT_CONTEXT_ATTRIBUTE);
+        log.info("found ident: {}", (String) ident);
         if (ident != null && ident instanceof String) {
             return oauthInjectionCache.get((String) ident);
         }

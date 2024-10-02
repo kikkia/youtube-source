@@ -120,7 +120,7 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
                                  long streamPosition) throws CannotBeLoaded, Exception {
     FormatWithUrl augmentedFormat = loadBestFormatWithUrl(httpInterface, client);
     log.info("Starting track with URL from client {}: {}", client.getIdentifier(), augmentedFormat.signedUrl);
-    httpInterface.getContext().setAttribute(YoutubeOauth2Handler.OAUTH_INJECT_CONTEXT_ATTRIBUTE, "testing");
+    httpInterface.getContext().setAttribute(YoutubeOauth2Handler.OAUTH_INJECT_CONTEXT_ATTRIBUTE, trackInfo.uri);
 
     try {
       if (trackInfo.isStream || augmentedFormat.format.getContentLength() == CONTENT_LENGTH_UNKNOWN) {
