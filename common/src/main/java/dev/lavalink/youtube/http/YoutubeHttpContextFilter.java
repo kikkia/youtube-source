@@ -78,7 +78,7 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
         context.removeAttribute(ATTRIBUTE_VISITOR_DATA_SPECIFIED);
         context.removeAttribute(ATTRIBUTE_USER_AGENT_SPECIFIED);
       }
-
+      log.info("Sending request to {}", request.getURI());
       oauth2Handler.applyToken(request);
     }
 
