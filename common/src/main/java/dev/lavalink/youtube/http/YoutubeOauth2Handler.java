@@ -9,7 +9,7 @@ import com.sedmelluq.discord.lavaplayer.tools.ExceptionTools;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpClientTools;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterfaceManager;
-import org.apache.http.Header;
+import dev.lavalink.youtube.clients.skeleton.Client;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -21,10 +21,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 public class YoutubeOauth2Handler {
     private static final Logger log = LoggerFactory.getLogger(YoutubeOauth2Handler.class);
@@ -269,8 +269,11 @@ public class YoutubeOauth2Handler {
     }
 
     public void applyToken(HttpUriRequest request, String token) {
+        if (!Client.PLAYER_URL.equals(request.getURI().toString())) {
+            return;
+        }
         // check again to ensure updating worked as expected.
-        if (token != "") {
+        if (!Objects.equals(token, "")) {
             log.info("Using oauth authorization header with value \"{} {}\"", "Bearer", token);
             request.setHeader("Authorization", String.format("%s %s", "Bearer", token));
         }
