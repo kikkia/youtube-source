@@ -74,7 +74,11 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
       if (oauthInjection != null) {
         toPrint = oauthInjection.substring(0, 8);
       }
+<<<<<<< HEAD
       log.debug("Oauth Injection: {} ---- {}", toPrint, request.getURI());
+=======
+      log.info("Oauth Injection: {} ---- {}", toPrint, request.getURI());
+>>>>>>> f3fd837 (add injection handler, more debugging)
       if (userAgent != null) {
         request.setHeader("User-Agent", userAgent);
 
