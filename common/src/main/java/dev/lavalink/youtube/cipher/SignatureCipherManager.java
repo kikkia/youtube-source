@@ -131,7 +131,23 @@ public class SignatureCipherManager {
 
     if (!DataFormatTools.isNullOrEmpty(nParameter)) {
       try {
-        uri.setParameter("n", cipher.transform(nParameter, scriptEngine));
+        String transformed = cipher.transform(nParameter, scriptEngine);
+        String logMessage = null;
+
+        if (transformed == null) {
+          logMessage = "Transformed n parameter is null, n function possibly faulty";
+        } else if (nParameter.equals(transformed)) {
+          logMessage = "Transformed n parameter is the same as input, n function possibly short-circuited";
+        } else if (transformed.startsWith("enhanced_except_") || transformed.endsWith("_w8_" + nParameter)) {
+          logMessage = "N function did not complete due to exception";
+        }
+
+        if (logMessage != null) {
+            log.warn("{} (in: {}, out: {}, player script: {}, source version: {})",
+                logMessage, nParameter, transformed, playerScript, YoutubeSource.VERSION);
+        }
+
+        uri.setParameter("n", transformed);
       } catch (ScriptException | NoSuchMethodException e) {
         // URLs can still be played without a resolved n parameter. It just means they're
         // throttled. But we shouldn't throw an exception anyway as it's not really fatal.
@@ -267,7 +283,12 @@ public class SignatureCipherManager {
       throw new IllegalStateException("Must find n function from script: " + sourceUrl);
     }
 
-    SignatureCipher cipherKey = new SignatureCipher(nFunctionMatcher.group(0), scriptTimestamp.group(2), script);
+    String nFunction = nFunctionMatcher.group(0);
+    String nfParameterName = DataFormatTools.extractBetween(nFunction, "(", ")");
+    // remove short-circuit that prevents n challenge transformation
+    nFunction = nFunction.replaceAll("if\\s*\\(\\s*typeof\\s*\\w+\\s*===?.*?\\)\\s*return\\s+" + nfParameterName + "\\s*;?", "");
+
+    SignatureCipher cipherKey = new SignatureCipher(nFunction, scriptTimestamp.group(2), script);
 
     while (matcher.find()) {
       String type = matcher.group(1);
