@@ -102,20 +102,20 @@ public class YoutubeOauth2Handler {
      * be used instead.
      */
     private void initializeAccessToken() {
-        JsonObject response = fetchDeviceCode();
-
-        log.debug("fetch device code response: {}", JsonWriter.string(response));
-
-        String verificationUrl = response.getString("verification_url");
-        String userCode = response.getString("user_code");
-        String deviceCode = response.getString("device_code");
-        long interval = response.getLong("interval") * 1000;
-
-        log.info("==================================================");
-        log.info("!!! DO NOT AUTHORISE WITH YOUR MAIN ACCOUNT, USE A BURNER !!!");
-        log.info("OAUTH INTEGRATION: To give youtube-source access to your account, go to {} and enter code {}", verificationUrl, userCode);
-        log.info("!!! DO NOT AUTHORISE WITH YOUR MAIN ACCOUNT, USE A BURNER !!!");
-        log.info("==================================================");
+//        JsonObject response = fetchDeviceCode();
+//
+//        log.debug("fetch device code response: {}", JsonWriter.string(response));
+//
+//        String verificationUrl = response.getString("verification_url");
+//        String userCode = response.getString("user_code");
+//        String deviceCode = response.getString("device_code");
+//        long interval = response.getLong("interval") * 1000;
+//
+//        log.info("==================================================");
+//        log.info("!!! DO NOT AUTHORISE WITH YOUR MAIN ACCOUNT, USE A BURNER !!!");
+//        log.info("OAUTH INTEGRATION: To give youtube-source access to your account, go to {} and enter code {}", verificationUrl, userCode);
+//        log.info("!!! DO NOT AUTHORISE WITH YOUR MAIN ACCOUNT, USE A BURNER !!!");
+//        log.info("==================================================");
 
         // Should this be a daemon?
         //new Thread(() -> pollForToken(deviceCode, interval == 0 ? 5000 : interval), "youtube-source-token-poller").start();
