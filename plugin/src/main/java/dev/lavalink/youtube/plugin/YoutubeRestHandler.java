@@ -75,6 +75,7 @@ public class YoutubeRestHandler {
             }
 
             log.debug("Loading formats for {} with client {}", videoId, client.getIdentifier());
+            httpInterface.getContext().setAttribute(Client.OAUTH_CLIENT_ATTRIBUTE, client.supportsOAuth());
 
             TrackFormats formats;
 
