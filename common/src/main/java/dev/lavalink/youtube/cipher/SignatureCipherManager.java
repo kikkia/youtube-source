@@ -45,7 +45,7 @@ import static com.sedmelluq.discord.lavaplayer.tools.ExceptionTools.throwWithDeb
 public class SignatureCipherManager {
   private static final Logger log = LoggerFactory.getLogger(SignatureCipherManager.class);
 
-  private static final String VARIABLE_PART = "[a-zA-Z_\\$][a-zA-Z_0-9]*";
+  private static final String VARIABLE_PART = "[a-zA-Z_\\$][a-zA-Z_0-9\\$]*";
   private static final String VARIABLE_PART_DEFINE = "\\\"?" + VARIABLE_PART + "\\\"?";
   private static final String BEFORE_ACCESS = "(?:\\[\\\"|\\.)";
   private static final String AFTER_ACCESS = "(?:\\\"\\]|)";
@@ -174,6 +174,13 @@ public class SignatureCipherManager {
           throw throwWithDebugInfo(log, null, "no jsUrl found", "html", responseText);
         }
 
+        if (scriptUrl.contains("/player_ias_tce.vflset/")) {
+          // TODO: tce player scripts need proper support
+          //       see https://github.com/yt-dlp/yt-dlp/issues/12398
+          log.debug("jsUrl points to tce-variant player script, rewriting to non-tce.");
+          scriptUrl = scriptUrl.replace("/player_ias_tce.vflset/", "/player_ias.vflset/");
+        }
+
         return (cachedPlayerScript = new CachedPlayerScript(scriptUrl));
       } catch (IOException e) {
         throw ExceptionTools.toRuntimeException(e);
@@ -290,7 +297,7 @@ public class SignatureCipherManager {
     String nFunction = nFunctionMatcher.group(0);
     String nfParameterName = DataFormatTools.extractBetween(nFunction, "(", ")");
     // remove short-circuit that prevents n challenge transformation
-    nFunction = nFunction.replaceAll("if\\s*\\(\\s*typeof\\s*\\w+\\s*===?.*?\\)\\s*return\\s+" + nfParameterName + "\\s*;?", "");
+    nFunction = nFunction.replaceAll("if\\s*\\(\\s*typeof\\s*[\\w$]+\\s*===?.*?\\)\\s*return\\s+" + nfParameterName + "\\s*;?", "");
 
     SignatureCipher cipherKey = new SignatureCipher(nFunction, scriptTimestamp.group(2), script);
 

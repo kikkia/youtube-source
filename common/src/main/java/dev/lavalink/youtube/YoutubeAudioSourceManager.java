@@ -31,6 +31,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -169,6 +170,12 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
      */
     public void useOauth2(@Nullable String refreshToken, boolean skipInitialization) {
         oauth2Handler.setRefreshToken(refreshToken, skipInitialization);
+
+        if (Arrays.stream(clients).noneMatch(Client::supportsOAuth)) {
+            log.warn("OAuth has been enabled without registering any OAuth-compatible clients. " +
+                "Please consult https://github.com/lavalink-devs/youtube-source?tab=readme-ov-file#available-clients for a list of " +
+                "OAuth-compatible clients.");
+        }
     }
 
     @Nullable
@@ -275,7 +282,14 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
                 } else if ("/playlist".equals(urlInfo.path)) {
                     String playlistId = urlInfo.parameters.get("list");
 
-                    if (playlistId != null) return (client) -> client.loadPlaylist(this, httpInterface, playlistId, null);
+                    if (playlistId != null) {
+                        if (playlistId.startsWith("RD")) { // mix handling
+                            String videoId = playlistId.substring(2);
+                            return (client) -> client.loadMix(this, httpInterface, playlistId, videoId);
+                        }
+
+                        return (client) -> client.loadPlaylist(this, httpInterface, playlistId, null);
+                    }
                 } else if ("/watch_videos".equals(urlInfo.path)) {
                     String videoIds = urlInfo.parameters.get("video_ids");
 
