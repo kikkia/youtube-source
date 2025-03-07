@@ -67,10 +67,10 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
       return;
     }
 
-    String userAgent = context.getAttribute(ATTRIBUTE_USER_AGENT_SPECIFIED, String.class);
+    String userAgent = context.getAttribute(YoutubeOauth2Handler.OAUTH_INJECT_CONTEXT_ATTRIBUTE, String.class);
 
     if (!request.getURI().getHost().contains("googlevideo")) {
-      String oauthInjection = oauth2Handler.getOauthInjection(context);
+      String oauthInjection = context.getAttribute(ATTRIBUTE_VISITOR_DATA_SPECIFIED, String.class);
 
       if (userAgent != null) {
         request.setHeader("User-Agent", userAgent);
