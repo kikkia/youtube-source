@@ -45,7 +45,7 @@ import static com.sedmelluq.discord.lavaplayer.tools.ExceptionTools.throwWithDeb
 public class SignatureCipherManager {
   private static final Logger log = LoggerFactory.getLogger(SignatureCipherManager.class);
 
-  private static final String VARIABLE_PART = "[a-zA-Z_\\$][a-zA-Z_0-9]*";
+  private static final String VARIABLE_PART = "[a-zA-Z_\\$][a-zA-Z_0-9\\$]*";
   private static final String VARIABLE_PART_DEFINE = "\\\"?" + VARIABLE_PART + "\\\"?";
   private static final String BEFORE_ACCESS = "(?:\\[\\\"|\\.)";
   private static final String AFTER_ACCESS = "(?:\\\"\\]|)";
@@ -172,6 +172,13 @@ public class SignatureCipherManager {
 
         if (scriptUrl == null) {
           throw throwWithDebugInfo(log, null, "no jsUrl found", "html", responseText);
+        }
+
+        if (scriptUrl.contains("/player_ias_tce.vflset/")) {
+          // TODO: tce player scripts need proper support
+          //       see https://github.com/yt-dlp/yt-dlp/issues/12398
+          log.debug("jsUrl points to tce-variant player script, rewriting to non-tce.");
+          scriptUrl = scriptUrl.replace("/player_ias_tce.vflset/", "/player_ias.vflset/");
         }
 
         return (cachedPlayerScript = new CachedPlayerScript(scriptUrl));
