@@ -21,7 +21,7 @@ base {
 }
 
 dependencies {
-    implementation(project(":common"))
+    implementation(projects.common)
     implementation(projects.v2)
     compileOnly(libs.lavalink.server)
     compileOnly(libs.lavaplayer.ext.youtube.rotator)
@@ -39,6 +39,10 @@ java {
 mavenPublishing {
     coordinates("dev.lavalink.youtube", "youtube-plugin", version.toString())
     configure(JavaLibrary(JavadocJar.None(), sourcesJar = false))
+}
+
+tasks.jar {
+    dependsOn(":common:compileTestJava")
 }
 
 tasks {
