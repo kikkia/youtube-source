@@ -17,7 +17,7 @@ import java.net.URI;
 
 //@Disabled("Disabled since it's intended for manual use. Comment out to enable test")
 public class SignatureCipherManagerTest {
-    private String SCRIPT_URL = "https://www.youtube.com/s/player/363db69b/player_ias.vflset/de_DE/base.js";
+    private String SCRIPT_URL = "https://www.youtube.com/s/player/4fcd6e4a/player_ias.vflset/en_US/base.js";
 
     @Test
     public void testGetCypherScript() throws IOException {

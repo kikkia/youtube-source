@@ -91,10 +91,15 @@ public class SignatureCipherManager {
 
   private static final Pattern tceGlobalVarsPattern = Pattern.compile(
           "(?:^|[;,])\\s*(var\\s+([\\w$]+)\\s*=\\s*" +
-                  "([\"'])(?:\\\\.|[^\\\\])*?\\3" +  // Lazy quantifier to prevent excessive backtracking
+                  "(?:" +
+                  "([\"'])(?:\\\\.|[^\\\\])*?\\3" +  // Matches a quoted string safely
                   "\\s*\\.\\s*split\\((" +
-                  "([\"'])(?:\\\\.|[^\\\\])*?\\5" +  // Ensures the same quote type in split()
-                  "\\))(?=\\s*[,;]))");
+                  "([\"'])(?:\\\\.|[^\\\\])*?\\5" +  // Ensures same quote type in split()
+                  "\\))" +
+                  "|" +  // OR condition to handle array notation
+                  "\\[\\s*(?:([\"'])(?:\\\\.|[^\\\\])*?\\6\\s*,?\\s*)+\\]" +
+                  "))(?=\\s*[,;])"
+  );
 
   private static final Pattern functionTcePattern = Pattern.compile(
       "function(?:\\s+[a-zA-Z_\\$][a-zA-Z0-9_\\$]*)?\\(\\w\\)\\{" +
