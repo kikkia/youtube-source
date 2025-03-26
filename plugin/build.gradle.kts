@@ -21,7 +21,7 @@ base {
 }
 
 dependencies {
-    implementation(projects.common)
+    implementation(project(":common"))
     implementation(projects.v2)
     compileOnly(libs.lavalink.server)
     compileOnly(libs.lavaplayer.ext.youtube.rotator)
