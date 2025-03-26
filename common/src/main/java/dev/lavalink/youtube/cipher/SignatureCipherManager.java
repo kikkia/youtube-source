@@ -90,8 +90,11 @@ public class SignatureCipherManager {
           "\\s*return\\s*(\\2\\.join\\(\"\"\\)|Array\\.prototype\\.join\\.call\\(\\2,.*?\\))};", Pattern.DOTALL);
 
   private static final Pattern tceGlobalVarsPattern = Pattern.compile(
-      "(?:^|[;,])\\s*(var\\s+([\\w$]+)\\s*=\\s*\"(?:[^\"\\\\]|\\\\.)+\"\\s*\\.\\s*split\\(\"([^\"\\\\]|\\\\.)\"\\))(?=\\s*[,;])"
-  );
+          "(?:^|[;,])\\s*(var\\s+([\\w$]+)\\s*=\\s*" +
+                  "([\"'])(?:\\\\.|[^\\\\])*?\\3" +  // Lazy quantifier to prevent excessive backtracking
+                  "\\s*\\.\\s*split\\((" +
+                  "([\"'])(?:\\\\.|[^\\\\])*?\\5" +  // Ensures the same quote type in split()
+                  "\\))(?=\\s*[,;]))");
 
   private static final Pattern functionTcePattern = Pattern.compile(
       "function(?:\\s+[a-zA-Z_\\$][a-zA-Z0-9_\\$]*)?\\(\\w\\)\\{" +
@@ -170,6 +173,7 @@ public class SignatureCipherManager {
         // URLs can still be played without a resolved n parameter. It just means they're
         // throttled. But we shouldn't throw an exception anyway as it's not really fatal.
         dumpProblematicScript(cipherCache.get(playerScript).rawScript, playerScript, "Can't transform n parameter " + nParameter + " with " + cipher.nFunction + " n function");
+        log.error("oof", e);
       }
     }
 
