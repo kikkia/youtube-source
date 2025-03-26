@@ -31,6 +31,11 @@ mavenPublishing {
     configure(JavaLibrary(JavadocJar.Javadoc()))
 }
 
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+
 tasks {
     processResources {
         filter<ReplaceTokens>(
