@@ -44,6 +44,7 @@ public abstract class StreamingNonMusicClient extends NonMusicClient {
             // are still being processed by YouTube.
             isLive = true;
         }
+        log.error(json.text());
 
         JsonBrowser streamingData = json.get("streamingData");
         JsonBrowser mergedFormats = streamingData.get("formats");
