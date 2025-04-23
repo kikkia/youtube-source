@@ -105,9 +105,6 @@ public abstract class NonMusicClient implements Client {
                                                      @NotNull String videoId,
                                                      @Nullable PlayabilityStatus status,
                                                      boolean validatePlayabilityStatus) throws CannotBeLoaded, IOException {
-        SignatureCipherManager cipherManager = source.getCipherManager();
-        CachedPlayerScript playerScript = cipherManager.getCachedPlayerScript(httpInterface);
-        SignatureCipher signatureCipher = cipherManager.getCipherScript(httpInterface, playerScript.url);
 
         ClientConfig config = getBaseClientConfig(httpInterface);
 
@@ -127,7 +124,7 @@ public abstract class NonMusicClient implements Client {
             config.withRootField("params", params);
         }
 
-        String payload = config.withPlaybackSignatureTimestamp(signatureCipher.scriptTimestamp)
+        String payload = config.withPlaybackSignatureTimestamp("20199")
             .setAttributes(httpInterface)
             .toJsonString();
 
@@ -137,6 +134,8 @@ public abstract class NonMusicClient implements Client {
         JsonBrowser json = loadJsonResponse(httpInterface, request, "player api response");
         JsonBrowser playabilityJson = json.get("playabilityStatus");
         JsonBrowser videoDetails = json.get("videoDetails");
+
+        log.error("JSON {}", json.text());
 
         // we should always check playabilityStatus if videoDetails is null because it could contain important
         // information as to why, which prevents false reports about this not working as intended etc etc.
