@@ -23,6 +23,7 @@ public class StreamFormat {
   private final String signatureKey;
   private final boolean defaultAudioTrack;
   private final boolean isDrc;
+  private final boolean isSabr;
 
   /**
    * @param type Mime type of the format
@@ -47,7 +48,8 @@ public class StreamFormat {
       String signature,
       String signatureKey,
       boolean isDefaultAudioTrack,
-      boolean isDrc
+      boolean isDrc,
+      boolean isSabr
   ) {
     this.info = FormatInfo.get(type);
     this.type = type;
@@ -61,6 +63,7 @@ public class StreamFormat {
     this.signatureKey = signatureKey;
     this.defaultAudioTrack = isDefaultAudioTrack;
     this.isDrc = isDrc;
+    this.isSabr = isSabr;
   }
 
   /**
@@ -152,6 +155,10 @@ public class StreamFormat {
    */
   public boolean isDrc() {
     return isDrc;
+  }
+
+  public boolean isSabr() {
+    return isSabr;
   }
 
   @Override

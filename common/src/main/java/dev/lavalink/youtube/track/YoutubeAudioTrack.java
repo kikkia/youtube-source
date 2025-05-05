@@ -8,6 +8,7 @@ import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity;
 import com.sedmelluq.discord.lavaplayer.tools.JsonBrowser;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
+import com.sedmelluq.discord.lavaplayer.tools.io.PersistentHttpStream;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import com.sedmelluq.discord.lavaplayer.track.DelegatedAudioTrack;
@@ -31,6 +32,9 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.sedmelluq.discord.lavaplayer.container.Formats.MIME_AUDIO_WEBM;
 import static com.sedmelluq.discord.lavaplayer.tools.DataFormatTools.decodeUrlEncodedItems;
@@ -70,17 +74,11 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
     }
 
     try (HttpInterface httpInterface = sourceManager.getInterface()) {
-      try {
-        Object userData = getUserData();
-        if (userData != null) {
-          JsonBrowser jsonUserData = JsonBrowser.parse(userData.toString());
-          if (jsonUserData.get("oauth-token") != null) {
-            httpInterface.getContext().setAttribute(OAUTH_INJECT_CONTEXT_ATTRIBUTE, jsonUserData.get("oauth-token").text());
-          }
-        }
-      } catch (IOException e) {
-        log.debug("Failed to parse token from userData", e);
+      String oauthToken = getActiveToken();
+      if (oauthToken != null) {
+        httpInterface.getContext().setAttribute(OAUTH_INJECT_CONTEXT_ATTRIBUTE, oauthToken);
       }
+
       Exception lastException = null;
 
       for (Client client : clients) {
@@ -163,10 +161,16 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
                              HttpInterface httpInterface,
                              FormatWithUrl augmentedFormat,
                              long streamPosition) throws Exception {
-    YoutubePersistentHttpStream stream = null;
+    PersistentHttpStream stream = null;
 
     try {
-      stream = new YoutubePersistentHttpStream(httpInterface, augmentedFormat.signedUrl, augmentedFormat.format.getContentLength());
+      boolean isGoogle = augmentedFormat.signedUrl.getAuthority().contains("google");
+      if (isGoogle) {
+        stream = new YoutubePersistentHttpStream(httpInterface, augmentedFormat.signedUrl, augmentedFormat.format.getContentLength());
+      } else {
+        log.error("Content Length: {}", augmentedFormat.format.getContentLength());
+        stream = new PersistentHttpStream(httpInterface, augmentedFormat.signedUrl, augmentedFormat.format.getContentLength());
+      }
 
       if (streamPosition > 0) {
         stream.seek(streamPosition);
@@ -214,16 +218,41 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
       throw new FriendlyException("This video cannot be played", Severity.SUSPICIOUS, null);
     }
 
+    log.error("AMOUNT OF FORMATS WITH SABR: {}", formats.getFormats().stream().filter(StreamFormat::isSabr).collect(Collectors.toList()).size());
+
     StreamFormat format = formats.getBestFormat();
 
     URI resolvedUrl = format.getUrl();
-    if (client.requirePlayerScript()) {
+
+    // TODO
+    if (!format.isSabr()) {
+      // TODO make it support not having token
+      URI sabrUri = URI.create("http://192.168.0.171:8089/pipe?id=" + extractYouTubeId(trackInfo.uri) + "&token=" + getActiveToken());
+      log.warn("USING FORMAT ITAG: {}", format.getItag());
+      log.warn("SABR DETECTED USING: {}", sabrUri);
+      resolvedUrl = sabrUri;
+    } else if (client.requirePlayerScript()) {
       resolvedUrl = sourceManager.getCipherManager()
               .resolveFormatUrl(httpInterface, formats.getPlayerScriptUrl(), format);
       resolvedUrl = client.transformPlaybackUri(format.getUrl(), resolvedUrl);
     }
 
     return new FormatWithUrl(format, resolvedUrl);
+  }
+
+  private String getActiveToken() {
+    try {
+      Object userData = getUserData();
+      if (userData != null) {
+        JsonBrowser jsonUserData = JsonBrowser.parse(userData.toString());
+        if (jsonUserData.get("oauth-token") != null) {
+          return jsonUserData.get("oauth-token").text();
+        }
+      }
+    } catch (IOException e) {
+      log.debug("Failed to parse token from userData", e);
+    }
+    return null;
   }
 
   @Override
@@ -239,6 +268,21 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
   @Override
   public boolean isSeekable() {
     return true;
+  }
+
+  private final String YOUTUBE_ID_REGEX =
+          "(?:watch\\?v=|youtu\\.be/|embed/|v/|live/)([\\w-]{11})";
+  private final Pattern YOUTUBE_ID_PATTERN = Pattern.compile(YOUTUBE_ID_REGEX);
+
+  public String extractYouTubeId(String youtubeUrl) {
+    if (youtubeUrl == null || youtubeUrl.trim().isEmpty()) {
+      return null;
+    }
+    Matcher matcher = YOUTUBE_ID_PATTERN.matcher(youtubeUrl);
+    if (matcher.find()) {
+      return matcher.group(1);
+    }
+    return null;
   }
 
   private static class FormatWithUrl {

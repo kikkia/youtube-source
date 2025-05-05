@@ -113,7 +113,8 @@ public abstract class StreamingNonMusicClient extends NonMusicClient {
                 cipherInfo.get("s"),
                 cipherInfo.getOrDefault("sp", DEFAULT_SIGNATURE_KEY),
                 formatJson.get("audioTrack").get("audioIsDefault").asBoolean(true),
-                formatJson.get("isDrc").asBoolean(false)
+                formatJson.get("isDrc").asBoolean(false),
+                formatJson.get("sabr").asBoolean(false)
             ));
 
             return true;
