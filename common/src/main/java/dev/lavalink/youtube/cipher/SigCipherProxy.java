@@ -37,11 +37,10 @@ public class SigCipherProxy {
                 .value("player_url", "https://youtube.com" + playerScript)
                 .value("encrypted_signature", "")
                 .value("n_param", n)
-                .value("video_id", "test")
                 .end()
                 .done();
         request.setEntity(new StringEntity(requestBody, ContentType.APPLICATION_JSON));
-        request.addHeader("Authorization", "Bearer " + proxyPass);
+        request.addHeader("Authorization", proxyPass);
 
         try (CloseableHttpResponse response = httpInterface.execute(request)) {
             int statusCode = response.getStatusLine().getStatusCode();
@@ -79,11 +78,10 @@ public class SigCipherProxy {
                 .value("encrypted_signature", sig)
                 .value("n_param", nParam)
                 .value("signature_key", sigKey)
-                .value("video_id", "test")
             .end()
             .done();
         request.setEntity(new StringEntity(requestBody, ContentType.APPLICATION_JSON));
-        request.addHeader("Authorization", "Bearer " + proxyPass);
+        request.addHeader("Authorization", proxyPass);
 
         try (CloseableHttpResponse response = httpInterface.execute(request)) {
             int statusCode = response.getStatusLine().getStatusCode();
@@ -136,11 +134,10 @@ public class SigCipherProxy {
         String requestBody = JsonWriter.string()
                 .object()
                 .value("player_url", "https://youtube.com" + playerScript)
-                .value("video_id", "test")
                 .end()
                 .done();
         request.setEntity(new StringEntity(requestBody, ContentType.APPLICATION_JSON));
-        request.addHeader("Authorization", "Bearer " + proxyPass);
+        request.addHeader("Authorization", proxyPass);
 
         try (CloseableHttpResponse response = httpInterface.execute(request)) {
             int statusCode = response.getStatusLine().getStatusCode();
