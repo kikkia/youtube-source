@@ -20,15 +20,20 @@ base {
     archivesName = "youtube-plugin"
 }
 
+val embed by configurations.creating
 dependencies {
     implementation(projects.common)
     implementation(projects.v2)
     compileOnly(libs.lavalink.server)
     compileOnly(libs.lavaplayer.ext.youtube.rotator)
-    implementation(libs.rhino.engine)
     implementation(libs.nanojson)
     compileOnly(libs.slf4j)
     compileOnly(libs.annotations)
+
+    // Embed these dependencies into the plugin jar
+    embed(libs.bundles.graaljs)
+    embed(group = "io.github.bonede", name = "tree-sitter", version = "0.25.3")
+    embed(group = "io.github.bonede", name = "tree-sitter-javascript", version = "0.23.1")
 }
 
 java {
@@ -43,6 +48,9 @@ mavenPublishing {
 
 tasks.jar {
     dependsOn(":common:compileTestJava")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    from(embed.map { if (it.isDirectory) it else zipTree(it) })
 }
 
 tasks {
