@@ -15,12 +15,16 @@ dependencies {
     api(projects.common)
     compileOnly(libs.lavaplayer.v2)
 
-    implementation(libs.rhino.engine)
     implementation(libs.nanojson)
     compileOnly(libs.slf4j)
     compileOnly(libs.annotations)
 
     testImplementation(libs.lavaplayer.v2)
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
 }
 
 mavenPublishing {

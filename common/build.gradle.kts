@@ -14,7 +14,9 @@ base {
 dependencies {
     compileOnly(libs.lavaplayer.v1)
 
-    implementation(libs.rhino.engine)
+    api(libs.bundles.graaljs)
+    api(group = "io.github.bonede", name = "tree-sitter", version = "0.25.3")
+    api(group = "io.github.bonede", name = "tree-sitter-javascript", version = "0.23.1")
     implementation(libs.nanojson)
     compileOnly(libs.slf4j)
     compileOnly(libs.annotations)
@@ -25,6 +27,11 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.11.0-M1")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.11.0-M1")
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
 }
 
 mavenPublishing {

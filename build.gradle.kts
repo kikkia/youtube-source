@@ -4,6 +4,7 @@ plugins {
     java
     id("org.ajoberstar.grgit") version "5.2.0"
     alias(libs.plugins.maven.publish.base) apply false
+    id("com.github.johnrengelman.shadow") version "8.1.1" apply false
 }
 
 val (gitVersion, release) = versionFromGit()

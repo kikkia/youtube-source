@@ -6,6 +6,7 @@ plugins {
     `java-library`
     alias(libs.plugins.lavalink.gradle.plugin)
     alias(libs.plugins.maven.publish.base)
+    id("com.github.johnrengelman.shadow")
 }
 
 lavalinkPlugin {
@@ -25,10 +26,14 @@ dependencies {
     implementation(projects.v2)
     compileOnly(libs.lavalink.server)
     compileOnly(libs.lavaplayer.ext.youtube.rotator)
-    implementation(libs.rhino.engine)
     implementation(libs.nanojson)
     compileOnly(libs.slf4j)
     compileOnly(libs.annotations)
+
+    // Embed these dependencies into the plugin jar
+    implementation(libs.bundles.graaljs)
+    implementation(group = "io.github.bonede", name = "tree-sitter", version = "0.25.3")
+    implementation(group = "io.github.bonede", name = "tree-sitter-javascript", version = "0.23.1")
 }
 
 java {
@@ -41,8 +46,27 @@ mavenPublishing {
     configure(JavaLibrary(JavadocJar.None(), sourcesJar = false))
 }
 
+afterEvaluate {
+    publishing {
+        publications.named<MavenPublication>("maven") {
+            artifact(tasks.shadowJar)
+        }
+    }
+}
+
+tasks.shadowJar {
+    archiveClassifier.set("") // Produce youtube-plugin.jar instead of youtube-plugin-all.jar
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    relocate("lib", "")
+}
+
+// Lavalink requires the plugin to be a jar task
 tasks.jar {
-    dependsOn(":common:compileTestJava")
+    enabled = false // We're using shadowJar instead
+}
+
+tasks.build {
+    dependsOn(tasks.shadowJar)
 }
 
 tasks {
