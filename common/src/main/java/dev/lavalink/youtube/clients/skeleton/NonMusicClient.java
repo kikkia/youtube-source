@@ -12,10 +12,13 @@ import dev.lavalink.youtube.cipher.CipherManager;
 import dev.lavalink.youtube.cipher.CipherManager.CachedPlayerScript;
 import dev.lavalink.youtube.clients.ClientConfig;
 import dev.lavalink.youtube.track.TemporalInfo;
+import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,6 +30,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.COMMON;
@@ -197,7 +202,9 @@ protected JsonBrowser loadTrackInfoFromInnertube(@NotNull YoutubeAudioSourceMana
             Matcher matcher = pattern.matcher(htmlContent);
 
             if (matcher.find()) {
-                return matcher.group(1);
+                String hostFlags = matcher.group(1);
+                log.info("Using Host Flags:" + hostFlags);
+                return hostFlags;
             }
 
             return null;
