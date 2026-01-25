@@ -24,6 +24,10 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.function.Function;
 
 import static com.sedmelluq.discord.lavaplayer.tools.ExceptionTools.throwWithDebugInfo;
 
@@ -33,7 +37,7 @@ import static com.sedmelluq.discord.lavaplayer.tools.ExceptionTools.throwWithDeb
 public class RemoteCipherManager implements CipherManager {
     private static final Logger log = LoggerFactory.getLogger(RemoteCipherManager.class);
 
-    private final @NotNull String remoteUrl;
+    private final @NotNull List<String> remoteUrls;
 
     protected volatile CachedPlayerScript cachedPlayerScript;
 
@@ -41,12 +45,16 @@ public class RemoteCipherManager implements CipherManager {
      * Create a new remote cipher manager
      */
     public RemoteCipherManager(@NotNull String remoteUrl) {
-        this.remoteUrl = remoteUrl;
+        this(Collections.singletonList(remoteUrl));
+    }
+
+    public RemoteCipherManager(@NotNull List<String> remoteUrls) {
+        this.remoteUrls = remoteUrls;
     }
 
     @NotNull
-    public String getRemoteUrl() {
-        return remoteUrl;
+    public List<String> getRemoteUrls() {
+        return remoteUrls;
     }
 
 
@@ -94,30 +102,18 @@ public class RemoteCipherManager implements CipherManager {
     }
 
     public String getTimestamp(HttpInterface httpInterface, String sourceUrl) throws IOException {
-        synchronized (this) {
-            HttpPost request = new HttpPost(getRemoteEndpoint("get_sts"));
+        String requestBody = JsonWriter.string()
+            .object()
+            .value("player_url", sourceUrl)
+            .end()
+            .done();
 
-            log.debug("Getting timestamp for script: {}", sourceUrl);
-
-            String requestBody = JsonWriter.string()
-                .object()
-                .value("player_url", sourceUrl)
-                .end()
-                .done();
-            request.setEntity(new StringEntity(requestBody, ContentType.APPLICATION_JSON));
-
-            try (CloseableHttpResponse response = configureHttpInterface(httpInterface).execute(request)) {
-                String responseBody = validateAndGetResponseBody(response);
-
-                log.debug("Received response from remote cipher service: {}", responseBody);
-
-                JsonBrowser json = JsonBrowser.parse(responseBody);
-                return json.get("sts").text();
-            }
-        }
+        String responseBody = executeRequest(httpInterface, "get_sts", requestBody);
+        JsonBrowser json = JsonBrowser.parse(responseBody);
+        return json.get("sts").text();
     }
 
-    private String getRemoteEndpoint(String path) {
+    private String getRemoteEndpoint(String remoteUrl, String path) {
         return remoteUrl.endsWith("/") ? remoteUrl + path : remoteUrl + "/" + path;
     }
 
@@ -132,7 +128,6 @@ public class RemoteCipherManager implements CipherManager {
                            String signature,
                            String nParam,
                            String sigKey) throws IOException {
-        HttpPost request = new HttpPost(getRemoteEndpoint("resolve_url"));
         log.debug("Resolving stream url {} with player script {}", baseUrl, playerScript);
 
         JsonStringWriter writer = JsonWriter.string()
@@ -151,21 +146,38 @@ public class RemoteCipherManager implements CipherManager {
         }
 
         String requestBody = writer.end().done();
-        request.setEntity(new StringEntity(requestBody, ContentType.APPLICATION_JSON));
+        String responseBody = executeRequest(httpInterface, "resolve_url", requestBody);
+        JsonBrowser json = JsonBrowser.parse(responseBody);
+        String resolvedUrl = json.get("resolved_url").text();
 
-        try (CloseableHttpResponse response = configureHttpInterface(httpInterface).execute(request)) {
-            String responseBody = validateAndGetResponseBody(response);
-            JsonBrowser json = JsonBrowser.parse(responseBody);
-            String resolvedUrl = json.get("resolved_url").text();
+        if (resolvedUrl == null || resolvedUrl.isEmpty()) {
+            throw new IOException("Remote cipher service did not return a resolved URL.");
+        }
 
-            if (resolvedUrl == null || resolvedUrl.isEmpty()) {
-                throw new IOException("Remote cipher service did not return a resolved URL.");
-            }
-
+        try {
             return new URI(resolvedUrl);
         } catch (URISyntaxException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private String executeRequest(HttpInterface httpInterface, String path, String requestBody) throws IOException {
+        List<String> urls = new ArrayList<>(remoteUrls);
+        IOException lastException = null;
+
+        for (String remoteUrl : urls) {
+            HttpPost request = new HttpPost(getRemoteEndpoint(remoteUrl, path));
+            request.setEntity(new StringEntity(requestBody, ContentType.APPLICATION_JSON));
+
+            try (CloseableHttpResponse response = configureHttpInterface(httpInterface).execute(request)) {
+                return validateAndGetResponseBody(response);
+            } catch (IOException e) {
+                lastException = e;
+                log.error("Failed to make request to remote cipher server {}: {}", remoteUrl, e.getMessage());
+            }
+        }
+
+        throw new IOException("All remote cipher servers failed.", lastException);
     }
 
     @NotNull

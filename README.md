@@ -314,8 +314,8 @@ If you want to implement your own, you can follow the [yt-cipher API specificati
 ### Lavaplayer
 ```java
 YoutubeSourceOptions options = new YoutubeSourceOptions()
-     // The base URL of your remote cipher server & the password to authenticate with your remote cipher server, along with an identifier for metrics.
-    .setRemoteCipher("http://localhost:8001", "your_secret_password", "user agent");
+     // The base URL(s) of your remote cipher server & the password to authenticate with your remote cipher server, along with an identifier for metrics.
+    .setRemoteCipher(List.of("http://localhost:8001", "http://localhost:8002"), "your_secret_password", "user agent");
 YoutubeAudioSourceManager sourceManager = new YoutubeAudioSourceManager(options, ...);
 ```
 
@@ -324,9 +324,11 @@ YoutubeAudioSourceManager sourceManager = new YoutubeAudioSourceManager(options,
 plugins:
   youtube:
     remoteCipher:
-      url: "http://localhost:8001" # The base URL of your remote cipher server.
+      url: # A list of base URLs for your remote cipher servers.
+        - "http://localhost:8001"
+        - "http://localhost:8002"
       password: "your_secret_password" # The password to authenticate with your remote cipher server.
-      userAgent: "your_service_name" # Optional user-agent header, used for metrics on the backend. 
+      userAgent: "your_service_name" # Optional user-agent header, used for metrics on the backend.
 ```
 
 ## REST routes (`plugin` only)

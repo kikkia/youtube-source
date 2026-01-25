@@ -180,9 +180,9 @@ public class YoutubePluginLoader implements AudioPlayerManagerConfiguration {
                 }
             }
 
-            if (cipherConfig != null && cipherConfig.getUrl() != null) {
-                log.info("Using remote cipher server with URL \"{}\"", cipherConfig.getUrl());
-                sourceOptions.setRemoteCipher(cipherConfig.getUrl(), cipherConfig.getPassword(), cipherConfig.getUserAgent());
+            if (cipherConfig != null && !cipherConfig.getUrls().isEmpty()) {
+                log.info("Using remote cipher server with URLs \"{}\"", cipherConfig.getUrls());
+                sourceOptions.setRemoteCipher(cipherConfig.getUrls(), cipherConfig.getPassword(), cipherConfig.getUserAgent());
             }
         }
 
