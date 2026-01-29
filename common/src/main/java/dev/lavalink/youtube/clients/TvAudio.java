@@ -12,19 +12,19 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 
-public class Tv extends StreamingNonMusicClient {
+public class TvAudio extends StreamingNonMusicClient {
     public static ClientConfig BASE_CONFIG = new ClientConfig()
-        .withClientName("TVHTML5")
+        .withClientName("TVHTML5_AUDIO")
         .withUserAgent("Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)")
-        .withClientField("clientVersion", "7.20260114.12.00");
+        .withClientField("clientVersion", "2.0");
 
     protected ClientOptions options;
 
-    public Tv() {
+    public TvAudio() {
         this(ClientOptions.DEFAULT);
     }
 
-    public Tv(@NotNull ClientOptions options) {
+    public TvAudio(@NotNull ClientOptions options) {
         this.options = options;
     }
 
@@ -53,7 +53,7 @@ public class Tv extends StreamingNonMusicClient {
 
     @Override
     public boolean supportsOAuth() {
-        return true;
+        return false;
     }
 
     @Override
