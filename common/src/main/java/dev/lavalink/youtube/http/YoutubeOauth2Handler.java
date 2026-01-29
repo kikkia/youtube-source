@@ -1,11 +1,9 @@
 package dev.lavalink.youtube.http;
 
-import com.grack.nanojson.JsonObject;
-import com.grack.nanojson.JsonParser;
-import com.grack.nanojson.JsonParserException;
 import com.grack.nanojson.JsonWriter;
 import com.sedmelluq.discord.lavaplayer.tools.DataFormatTools;
 import com.sedmelluq.discord.lavaplayer.tools.ExceptionTools;
+import com.sedmelluq.discord.lavaplayer.tools.JsonBrowser;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpClientTools;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterfaceManager;
@@ -34,6 +32,7 @@ public class YoutubeOauth2Handler {
     private static final String CLIENT_SECRET = "SboVhoG9s0rNafixCSGGKXAT";
     private static final String SCOPES = "http://gdata.youtube.com https://www.googleapis.com/auth/youtube";
     private static final String OAUTH_FETCH_CONTEXT_ATTRIBUTE = "yt-oauth";
+    public static final String OAUTH_INJECT_CONTEXT_ATTRIBUTE = "yt-oauth-token";
 
     private final HttpInterfaceManager httpInterfaceManager;
 
@@ -67,6 +66,10 @@ public class YoutubeOauth2Handler {
         }
     }
 
+    public boolean hasAccessToken() {
+        return accessToken != null;
+    }
+
     public boolean shouldRefreshAccessToken() {
         return enabled && !DataFormatTools.isNullOrEmpty(refreshToken) && (DataFormatTools.isNullOrEmpty(accessToken) || System.currentTimeMillis() >= tokenExpires);
     }
@@ -77,7 +80,7 @@ public class YoutubeOauth2Handler {
     }
 
     public boolean isOauthFetchContext(HttpClientContext context) {
-        return context.getAttribute(OAUTH_FETCH_CONTEXT_ATTRIBUTE) == Boolean.TRUE;
+        return context.removeAttribute(OAUTH_FETCH_CONTEXT_ATTRIBUTE) == Boolean.TRUE;
     }
 
     /**
@@ -87,14 +90,14 @@ public class YoutubeOauth2Handler {
      * be used instead.
      */
     private void initializeAccessToken() {
-        JsonObject response = fetchDeviceCode();
+        JsonBrowser response = fetchDeviceCode();
 
-        log.debug("fetch device code response: {}", JsonWriter.string(response));
+        log.debug("fetch device code response: {}", response.format());
 
-        String verificationUrl = response.getString("verification_url");
-        String userCode = response.getString("user_code");
-        String deviceCode = response.getString("device_code");
-        long interval = response.getLong("interval") * 1000;
+        String verificationUrl = response.get("verification_url").text();
+        String userCode = response.get("user_code").text();
+        String deviceCode = response.get("device_code").text();
+        long interval = response.get("interval").asLong(0) * 1000;
 
         log.info("==================================================");
         log.info("!!! DO NOT AUTHORISE WITH YOUR MAIN ACCOUNT, USE A BURNER !!!");
@@ -102,11 +105,17 @@ public class YoutubeOauth2Handler {
         log.info("!!! DO NOT AUTHORISE WITH YOUR MAIN ACCOUNT, USE A BURNER !!!");
         log.info("==================================================");
 
-        // Should this be a daemon?
-        new Thread(() -> pollForToken(deviceCode, interval == 0 ? 5000 : interval), "youtube-source-token-poller").start();
+        Thread pollThread = new Thread(() -> pollForToken(deviceCode, interval == 0 ? 5000 : interval), "youtube-source-token-poller");
+        pollThread.setDaemon(true);
+        pollThread.start();
     }
 
-    private JsonObject fetchDeviceCode() {
+    /**
+     * Retrieves a device code for use with the OAuth flow.
+     * The returned payload will contain a user code and a device code, as well as a recommended poll interval,
+     * which must be used to complete the flow.
+     */
+    public JsonBrowser fetchDeviceCode() {
         // @formatter:off
         String requestJson = JsonWriter.string()
             .object()
@@ -125,13 +134,24 @@ public class YoutubeOauth2Handler {
         try (HttpInterface httpInterface = getHttpInterface();
              CloseableHttpResponse response = httpInterface.execute(request)) {
             HttpClientTools.assertSuccessWithContent(response, "device code fetch");
-            return JsonParser.object().from(response.getEntity().getContent());
-        } catch (IOException | JsonParserException e) {
+            return JsonBrowser.parse(response.getEntity().getContent());
+        } catch (IOException e) {
             throw ExceptionTools.toRuntimeException(e);
         }
     }
 
-    private void pollForToken(String deviceCode, long interval) {
+    /**
+     * Retrieve a refresh token from a given device code. This might not yield a successful response
+     * if the OAuth flow for the given device code has not yet been completed, or the device code is invalid.
+     * @param deviceCode The device code obtained from {@link #fetchDeviceCode()}
+     */
+    public JsonBrowser fetchRefreshToken(String deviceCode) throws IOException {
+        try (HttpInterface httpInterface = getHttpInterface()) {
+            return fetchRefreshToken(httpInterface, deviceCode);
+        }
+    }
+
+    private JsonBrowser fetchRefreshToken(HttpInterface httpInterface, String deviceCode) throws IOException {
         // @formatter:off
         String requestJson = JsonWriter.string()
             .object()
@@ -147,45 +167,60 @@ public class YoutubeOauth2Handler {
         StringEntity body = new StringEntity(requestJson, ContentType.APPLICATION_JSON);
         request.setEntity(body);
 
-        while (true) {
-            try (HttpInterface httpInterface = getHttpInterface();
-                 CloseableHttpResponse response = httpInterface.execute(request)) {
-                HttpClientTools.assertSuccessWithContent(response, "oauth2 token fetch");
-                JsonObject parsed = JsonParser.object().from(response.getEntity().getContent());
+        try (CloseableHttpResponse response = httpInterface.execute(request)) {
+            HttpClientTools.assertSuccessWithContent(response, "oauth2 token fetch");
+            JsonBrowser parsed = JsonBrowser.parse(response.getEntity().getContent());
+            log.debug("oauth2 token fetch response: {}", parsed.format());
+            return parsed;
+        } catch (IOException e) {
+            throw ExceptionTools.toRuntimeException(e);
+        }
+    }
 
-                log.debug("oauth2 token fetch response: {}", JsonWriter.string(parsed));
+    private void pollForToken(String deviceCode, long interval) {
+        try (HttpInterface httpInterface = getHttpInterface()) {
+            while (true) {
+                try {
+                    JsonBrowser response = fetchRefreshToken(httpInterface, deviceCode);
 
-                if (parsed.has("error") && !parsed.isNull("error")) {
-                    String error = parsed.getString("error");
+                    if (!response.get("error").isNull()) {
+                        String error = response.get("error").text();
 
-                    switch (error) {
-                        case "authorization_pending":
-                        case "slow_down":
-                            Thread.sleep(interval);
-                            continue;
-                        case "expired_token":
-                            log.error("OAUTH INTEGRATION: The device token has expired. OAuth integration has been canceled.");
-                        case "access_denied":
-                            log.error("OAUTH INTEGRATION: Account linking was denied. OAuth integration has been canceled.");
-                        default:
-                            log.error("Unhandled OAuth2 error: {}", error);
+                        switch (error) {
+                            case "authorization_pending":
+                            case "slow_down":
+                                Thread.sleep(interval);
+                                continue;
+                            case "expired_token":
+                                log.error("OAUTH INTEGRATION: The device token has expired. OAuth integration has been canceled.");
+                                break;
+                            case "access_denied":
+                                log.error("OAUTH INTEGRATION: Account linking was denied. OAuth integration has been canceled.");
+                                break;
+                            default:
+                                log.error("Unhandled OAuth2 error: {}", error);
+                                break;
+                        }
+
+                        return;
                     }
 
+                    updateTokens(response);
+                    log.info("OAUTH INTEGRATION: Token retrieved successfully. Store your refresh token as this can be reused. ({})", refreshToken);
+                    enabled = true;
                     return;
+                } catch (InterruptedException | RuntimeException e) {
+                    log.error("Failed to fetch OAuth2 token response", e);
                 }
-
-                updateTokens(parsed);
-                log.info("OAUTH INTEGRATION: Token retrieved successfully. Store your refresh token as this can be reused. ({})", refreshToken);
-                enabled = true;
-                return;
-            } catch (IOException | JsonParserException | InterruptedException e) {
-                log.error("Failed to fetch OAuth2 token response", e);
             }
+        } catch (IOException e) {
+            log.error("Failed to acquire HTTP interface for token polling", e);
         }
     }
 
     /**
      * Refreshes an access token using a supplied refresh token.
+     *
      * @param force Whether to forcefully renew the access token, even if it doesn't necessarily
      *              need to be refreshed yet.
      */
@@ -211,43 +246,58 @@ public class YoutubeOauth2Handler {
                 return;
             }
 
-            // @formatter:off
-            String requestJson = JsonWriter.string()
-                .object()
-                    .value("client_id", CLIENT_ID)
-                    .value("client_secret", CLIENT_SECRET)
-                    .value("refresh_token", refreshToken)
-                    .value("grant_type", "refresh_token")
-                .end()
-                .done();
-            // @formatter:on
-
-            HttpPost request = new HttpPost("https://www.youtube.com/o/oauth2/token");
-            StringEntity entity = new StringEntity(requestJson, ContentType.APPLICATION_JSON);
-            request.setEntity(entity);
-
-            try (HttpInterface httpInterface = getHttpInterface();
-                 CloseableHttpResponse response = httpInterface.execute(request)) {
-                HttpClientTools.assertSuccessWithContent(response, "oauth2 token fetch");
-                JsonObject parsed = JsonParser.object().from(response.getEntity().getContent());
-
-                if (parsed.has("error") && !parsed.isNull("error")) {
-                    throw new RuntimeException("Refreshing access token returned error " + parsed.getString("error"));
-                }
-
-                updateTokens(parsed);
-                log.info("YouTube access token refreshed successfully");
-            } catch (IOException | JsonParserException e) {
-                throw ExceptionTools.toRuntimeException(e);
-            }
+            JsonBrowser json = createNewAccessToken(refreshToken);
+            updateTokens(json);
+            log.info("YouTube access token refreshed successfully");
+            log.debug("YouTube access token is {} and refresh token is {}. Access token expires in {} seconds.", accessToken, refreshToken, json.get("expires_in").asLong(300));
         }
     }
 
-    private void updateTokens(JsonObject json) {
-        long tokenLifespan = json.getLong("expires_in");
-        tokenType = json.getString("token_type");
-        accessToken = json.getString("access_token");
-        refreshToken = json.getString("refresh_token", refreshToken);
+
+    /**
+     * Executes the HTTP request to refresh the access token and returns the response.
+     *
+     * @param refreshToken The refresh token to be included in the request.
+     * @return The JSON response as a JsonObject.
+     */
+    public JsonBrowser createNewAccessToken(String refreshToken) {
+        // @formatter:off
+        String requestJson = JsonWriter.string()
+            .object()
+                .value("client_id", CLIENT_ID)
+                .value("client_secret", CLIENT_SECRET)
+                .value("refresh_token", refreshToken)
+                .value("grant_type", "refresh_token")
+            .end()
+            .done();
+        // @formatter:on
+
+        HttpPost request = new HttpPost("https://www.youtube.com/o/oauth2/token");
+        StringEntity entity = new StringEntity(requestJson, ContentType.APPLICATION_JSON);
+        request.setEntity(entity);
+
+        try (HttpInterface httpInterface = getHttpInterface();
+             CloseableHttpResponse response = httpInterface.execute(request)) {
+            HttpClientTools.assertSuccessWithContent(response, "oauth2 token fetch");
+            JsonBrowser parsed = JsonBrowser.parse(response.getEntity().getContent());
+
+            if (!parsed.get("error").isNull()) {
+                throw new RuntimeException("Refreshing access token returned error " + parsed.get("error").text());
+            }
+
+            return parsed;
+        } catch (IOException e) {
+            throw ExceptionTools.toRuntimeException(e);
+        }
+    }
+
+    private void updateTokens(JsonBrowser json) {
+        JsonBrowser newRefreshToken = json.get("refresh_token");
+
+        long tokenLifespan = json.get("expires_in").asLong(300);
+        tokenType = json.get("token_type").text();
+        accessToken = json.get("access_token").text();
+        refreshToken = newRefreshToken.isNull() ? refreshToken : newRefreshToken.text();
         tokenExpires = System.currentTimeMillis() + (tokenLifespan * 1000) - 60000;
 
         log.debug("OAuth access token is {} and refresh token is {}. Access token expires in {} seconds.", accessToken, refreshToken, tokenLifespan);
@@ -286,6 +336,10 @@ public class YoutubeOauth2Handler {
             log.debug("Using oauth authorization header with value \"{} {}\"", tokenType, accessToken);
             request.setHeader("Authorization", String.format("%s %s", tokenType, accessToken));
         }
+    }
+
+    public void applyToken(HttpUriRequest request, String token) {
+        request.setHeader("Authorization", String.format("%s %s", "Bearer", token));
     }
 
     private HttpInterface getHttpInterface() {

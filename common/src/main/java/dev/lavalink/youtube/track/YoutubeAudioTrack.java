@@ -6,16 +6,18 @@ import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
 import com.sedmelluq.discord.lavaplayer.tools.ExceptionTools;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity;
+import com.sedmelluq.discord.lavaplayer.tools.JsonBrowser;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import com.sedmelluq.discord.lavaplayer.track.DelegatedAudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.playback.LocalAudioTrackExecutor;
 import dev.lavalink.youtube.CannotBeLoaded;
+import dev.lavalink.youtube.AllClientsFailedException;
 import dev.lavalink.youtube.ClientInformation;
-import dev.lavalink.youtube.UrlTools;
+import dev.lavalink.youtube.*;
 import dev.lavalink.youtube.UrlTools.UrlInfo;
-import dev.lavalink.youtube.YoutubeAudioSourceManager;
+import dev.lavalink.youtube.cipher.ScriptExtractionException;
 import dev.lavalink.youtube.clients.skeleton.Client;
 import dev.lavalink.youtube.track.format.StreamFormat;
 import dev.lavalink.youtube.track.format.TrackFormats;
@@ -24,20 +26,29 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import static com.sedmelluq.discord.lavaplayer.container.Formats.MIME_AUDIO_WEBM;
 import static com.sedmelluq.discord.lavaplayer.tools.DataFormatTools.decodeUrlEncodedItems;
 import static com.sedmelluq.discord.lavaplayer.tools.Units.CONTENT_LENGTH_UNKNOWN;
+import static dev.lavalink.youtube.http.YoutubeOauth2Handler.OAUTH_INJECT_CONTEXT_ATTRIBUTE;
 
 /**
  * Audio track that handles processing Youtube videos as audio tracks.
  */
 public class YoutubeAudioTrack extends DelegatedAudioTrack {
   private static final Logger log = LoggerFactory.getLogger(YoutubeAudioTrack.class);
+
+  // This field is used to determine at what point should a stream be discarded.
+  // If an error is thrown and the executor's position is larger than this number,
+  // the stream URL will not be renewed.
+  public static long BAD_STREAM_POSITION_THRESHOLD_MS = 3000;
 
   private final YoutubeAudioSourceManager sourceManager;
 
@@ -61,51 +72,55 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
     }
 
     try (HttpInterface httpInterface = sourceManager.getInterface()) {
-      Exception lastException = null;
+      try {
+        Object userData = getUserData();
+
+        if (userData != null) {
+          JsonBrowser jsonUserData = JsonBrowser.parse(userData.toString());
+
+          if (jsonUserData.get("oauth-token") != null) {
+            httpInterface.getContext().setAttribute(OAUTH_INJECT_CONTEXT_ATTRIBUTE, jsonUserData.get("oauth-token").text());
+          }
+        }
+      } catch (IOException e) {
+        log.debug("Failed to parse token from userData", e);
+      }
+
+      List<ClientException> exceptions = new ArrayList<>();
 
       for (Client client : clients) {
         if (!client.supportsFormatLoading()) {
           continue;
         }
 
+        httpInterface.getContext().setAttribute(Client.OAUTH_CLIENT_ATTRIBUTE, client.supportsOAuth());
+
         try {
           processWithClient(localExecutor, httpInterface, client, 0);
-          return; // stream played through successfully, short-circuit.
-        } catch (RuntimeException e) {
-          // store exception so it can be thrown if we run out of clients to
-          // load formats with.
-          e.addSuppressed(ClientInformation.create(client));
-          lastException = e;
-
-          if (e instanceof FriendlyException) {
-            // usually thrown by getPlayabilityStatus when loading formats.
-            // these aren't considered fatal, so we just store them and continue.
-            continue;
+          return;
+        } catch (CannotBeLoaded e) {
+          throw e;
+        } catch (Exception e) {
+          if (e instanceof ScriptExtractionException) {
+            // If we're still early in playback, we can try another client
+            if (localExecutor.getPosition() >= BAD_STREAM_POSITION_THRESHOLD_MS) {
+              throw e;
+            }
+          } else if ("Not success status code: 403".equals(e.getMessage()) ||
+                  "Invalid status code for player api response: 400".equals(e.getMessage())) {
+            // As long as the executor position has not surpassed the threshold for which
+            // a stream is considered unrecoverable, we can try to renew the playback URL with
+            // another client.
+            if (localExecutor.getPosition() >= BAD_STREAM_POSITION_THRESHOLD_MS) {
+              throw e;
+            }
           }
-
-          String message = e.getMessage();
-
-          if ("Not success status code: 403".equals(message) ||
-              "Invalid status code for player api response: 400".equals(message) ||
-              (message != null && message.contains("No supported audio streams available"))) {
-            continue; // try next client
-          }
-
-          throw e; // Unhandled exception, just throw.
+          exceptions.add(new ClientException(e.getMessage(), client, e));
         }
       }
 
-      if (lastException != null) {
-        if (lastException instanceof FriendlyException) {
-          if (!"YouTube WebM streams are currently not supported.".equals(lastException.getMessage())) {
-            // Rethrow certain FriendlyExceptions as suspicious to ensure LavaPlayer logs them.
-            throw new FriendlyException(lastException.getMessage(), Severity.SUSPICIOUS, lastException.getCause());
-          }
-
-          throw lastException;
-        }
-
-        throw ExceptionTools.toRuntimeException(lastException);
+      if (!exceptions.isEmpty()) {
+        throw new AllClientsFailedException(exceptions);
       }
     } catch (CannotBeLoaded e) {
       throw ExceptionTools.wrapUnfriendlyExceptions("This video is unavailable", Severity.SUSPICIOUS, e.getCause());
@@ -127,17 +142,6 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
       }
     } catch (StreamExpiredException e) {
       processWithClient(localExecutor, httpInterface, client, e.lastStreamPosition);
-    } catch (RuntimeException e) {
-      if ("Not success status code: 403".equals(e.getMessage())) {
-        if (localExecutor.getPosition() < 3000) {
-          throw e; // bad stream URL, try the next client.
-        }
-      }
-
-      // contains("No route to host") || contains("Read timed out")
-      // augmentedFormat.getFallback()
-
-      throw e;
     }
   }
 
@@ -198,10 +202,12 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
 
     StreamFormat format = formats.getBestFormat();
 
-    URI resolvedUrl = sourceManager.getCipherManager()
-        .resolveFormatUrl(httpInterface, formats.getPlayerScriptUrl(), format);
-
-    resolvedUrl = client.transformPlaybackUri(format.getUrl(), resolvedUrl);
+    URI resolvedUrl = format.getUrl();
+    if (client.requirePlayerScript()) {
+      resolvedUrl = sourceManager.getCipherManager()
+              .resolveFormatUrl(httpInterface, formats.getPlayerScriptUrl(), format);
+      resolvedUrl = client.transformPlaybackUri(format.getUrl(), resolvedUrl);
+    }
 
     return new FormatWithUrl(format, resolvedUrl);
   }
@@ -276,8 +282,8 @@ public class YoutubeAudioTrack extends DelegatedAudioTrack {
     private final long lastStreamPosition;
 
     private StreamExpiredException(long lastStreamPosition,
-                                   @NotNull Exception cause) {
-      super(cause);
+                                   @NotNull Throwable cause) {
+      super(null, cause, true, false);
       this.lastStreamPosition = lastStreamPosition;
     }
   }

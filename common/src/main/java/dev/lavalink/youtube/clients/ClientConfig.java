@@ -132,6 +132,15 @@ public class ClientConfig {
         return this;
     }
 
+    public ClientConfig withEncryptedHostFlags(@Nullable String encryptedHostFlags) {
+        if (encryptedHostFlags != null) {
+            Map<String, Object> playbackContext = putOnceAndJoin(root, "playbackContext");
+            Map<String, Object> contentPlaybackContext = putOnceAndJoin(playbackContext, "contentPlaybackContext");
+            contentPlaybackContext.put("encryptedHostFlags", encryptedHostFlags);
+        }
+        return this;
+    }
+
     public ClientConfig withRootField(@NotNull String key,
                                       @Nullable Object value) {
         root.put(key, value);
@@ -173,7 +182,8 @@ public class ClientConfig {
     public enum AndroidVersion {
         // https://apilevels.com/
         ANDROID_13("13", 33),
-        ANDROID_12("12", 31), // 12L => 32
+        ANDROID_12L("12L", 32),
+        ANDROID_12("12", 31),
         ANDROID_11("11", 30);
 
         private final String osVersion;

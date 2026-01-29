@@ -1,20 +1,21 @@
 package dev.lavalink.youtube.clients;
 
+import com.sedmelluq.discord.lavaplayer.tools.JsonBrowser;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
 import dev.lavalink.youtube.clients.ClientConfig.AndroidVersion;
 import dev.lavalink.youtube.clients.skeleton.StreamingNonMusicClient;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class Android extends StreamingNonMusicClient {
     private static final Logger log = LoggerFactory.getLogger(Android.class);
 
-    public static String CLIENT_VERSION = "19.07.39";
+    public static String CLIENT_VERSION = "19.44.38";
     public static AndroidVersion ANDROID_VERSION = AndroidVersion.ANDROID_11;
 
     public static ClientConfig BASE_CONFIG = new ClientConfig()
-        .withApiKey("AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w")
         .withUserAgent(String.format("com.google.android.youtube/%s (Linux; U; Android %s) gzip", CLIENT_VERSION, ANDROID_VERSION.getOsVersion()))
         .withClientName("ANDROID")
         .withClientField("clientVersion", CLIENT_VERSION)
@@ -46,9 +47,9 @@ public class Android extends StreamingNonMusicClient {
     }
 
     @Override
-    @NotNull
+    @Nullable
     public String getPlayerParams() {
-        return MOBILE_PLAYER_PARAMS;
+        return null;
     }
 
     @Override
@@ -61,5 +62,31 @@ public class Android extends StreamingNonMusicClient {
     @NotNull
     public String getIdentifier() {
         return BASE_CONFIG.getName();
+    }
+
+    @Override
+    @NotNull
+    protected String extractPlaylistName(@NotNull JsonBrowser json) {
+        return json.get("header")
+                .get("pageHeaderRenderer")
+                .get("content")
+                .get("elementRenderer")
+                .get("newElement")
+                .get("type")
+                .get("componentType")
+                .get("model")
+                .get("youtubeModel")
+                .get("viewModel")
+                .get("pageHeaderViewModel")
+                .get("title")
+                .get("dynamicTextViewModel")
+                .get("text")
+                .get("content")
+                .text();
+    }
+
+    @Override
+    public boolean requirePlayerScript() {
+        return false;
     }
 }

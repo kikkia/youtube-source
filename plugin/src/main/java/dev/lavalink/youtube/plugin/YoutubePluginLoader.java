@@ -8,9 +8,9 @@ import com.sedmelluq.lava.extensions.youtuberotator.tools.ip.Ipv4Block;
 import com.sedmelluq.lava.extensions.youtuberotator.tools.ip.Ipv6Block;
 import dev.arbjerg.lavalink.api.AudioPlayerManagerConfiguration;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
+import dev.lavalink.youtube.YoutubeSource;
+import dev.lavalink.youtube.YoutubeSourceOptions;
 import dev.lavalink.youtube.clients.ClientOptions;
-import dev.lavalink.youtube.clients.Web;
-import dev.lavalink.youtube.clients.WebEmbedded;
 import dev.lavalink.youtube.clients.skeleton.Client;
 import lavalink.server.config.RateLimitConfig;
 import lavalink.server.config.ServerConfig;
@@ -147,42 +147,46 @@ public class YoutubePluginLoader implements AudioPlayerManagerConfiguration {
             return audioPlayerManager;
         }
 
-        final YoutubeAudioSourceManager source;
-        final boolean allowSearch = youtubeConfig == null || youtubeConfig.getAllowSearch();
-        final boolean allowDirectVideoIds = youtubeConfig == null || youtubeConfig.getAllowDirectVideoIds();
-        final boolean allowDirectPlaylistIds = youtubeConfig == null || youtubeConfig.getAllowDirectPlaylistIds();
+        final YoutubeSourceOptions sourceOptions = new YoutubeSourceOptions()
+            .setAllowSearch(youtubeConfig == null || youtubeConfig.getAllowSearch())
+            .setAllowDirectVideoIds(youtubeConfig == null || youtubeConfig.getAllowDirectVideoIds())
+            .setAllowDirectPlaylistIds(youtubeConfig == null || youtubeConfig.getAllowDirectPlaylistIds());
 
-        if (clientProvider == null) {
-            log.warn("ClientProvider instance is missing. The YouTube source will be initialised with default clients.");
-            source = new YoutubeAudioSourceManager(allowSearch, allowDirectVideoIds, allowDirectPlaylistIds);
+        Client[] clients;
+
+        if (youtubeConfig == null) {
+            log.warn("Missing youtube config, default clients will be used.");
+            clients = YoutubeAudioSourceManager.DEFAULT_CLIENTS;
         } else {
-            String[] clients;
-
-            if (youtubeConfig == null || youtubeConfig.getClients() == null) {
-                log.warn("youtubeConfig missing or 'clients' was not specified, default values will be used.");
-                clients = clientProvider.getDefaultClients();
+            if (clientProvider == null || youtubeConfig.getClients() == null) {
+                log.warn("Missing \"youtube.clients\" or ClientProvider not initialised! Default clients will be used.");
+                clients = YoutubeAudioSourceManager.DEFAULT_CLIENTS;
             } else {
-                clients = youtubeConfig.getClients();
-                Pot pot = youtubeConfig.getPot();
+                clients = clientProvider.getClients(youtubeConfig.getClients(), this::getOptionsForClient);
+            }
 
-                if (pot != null) {
-                    String token = pot.getToken();
-                    String visitorData = pot.getVisitorData();
+            Pot pot = youtubeConfig.getPot();
+            YoutubeRemoteCipherConfig cipherConfig = youtubeConfig.getRemoteCipher();
 
-                    if (token != null && visitorData != null) {
-                        log.debug("Applying poToken and visitorData to WEB & WEBEMBEDDED client (token: {}, vd: {})", token, visitorData);
-                        WebEmbedded.setPoTokenAndVisitorData(token, visitorData);
-                        Web.setPoTokenAndVisitorData(token, visitorData);
-                    } else if (token != null || visitorData != null) {
-                        log.warn("Both pot.token and pot.visitorData must be specified and valid for pot to apply.");
-                    }
+            if (pot != null) {
+                String token = pot.getToken();
+                String visitorData = pot.getVisitorData();
+
+                if (token != null && visitorData != null) {
+                    log.debug("Applying poToken and visitorData to WEB & WEBEMBEDDED client (token: {}, vd: {})", token, visitorData);
+                    YoutubeSource.setPoTokenAndVisitorData(token, visitorData);
+                } else if (token != null || visitorData != null) {
+                    log.warn("Both \"youtube.pot.token\" and \"youtube.pot.visitorData\" must be specified and valid for pot to apply.");
                 }
             }
 
-            source = new YoutubeAudioSourceManager(allowSearch, allowDirectVideoIds, allowDirectPlaylistIds, clientProvider.getClients(clients, this::getOptionsForClient));
+            if (cipherConfig != null && cipherConfig.getUrl() != null) {
+                log.info("Using remote cipher server with URL \"{}\"", cipherConfig.getUrl());
+                sourceOptions.setRemoteCipher(cipherConfig.getUrl(), cipherConfig.getPassword(), cipherConfig.getUserAgent());
+            }
         }
 
-        log.info("YouTube source initialised with clients: {} ", Arrays.stream(source.getClients()).map(Client::getIdentifier).collect(Collectors.joining(", ")));
+        final YoutubeAudioSourceManager source = new YoutubeAudioSourceManager(sourceOptions, clients);
         final AbstractRoutePlanner routePlanner = getRoutePlanner();
 
         if (routePlanner != null) {
@@ -215,6 +219,7 @@ public class YoutubePluginLoader implements AudioPlayerManagerConfiguration {
             }
         }
 
+        log.info("YouTube source initialised with clients: {} ", Arrays.stream(source.getClients()).map(Client::getIdentifier).collect(Collectors.joining(", ")));
         audioPlayerManager.registerSourceManager(source);
         return audioPlayerManager;
     }

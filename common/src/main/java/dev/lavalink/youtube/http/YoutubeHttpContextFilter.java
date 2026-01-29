@@ -1,18 +1,20 @@
 package dev.lavalink.youtube.http;
 
-import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.tools.http.HttpContextRetryCounter;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpClientTools;
+import com.sedmelluq.discord.lavaplayer.tools.DataFormatTools;
+import dev.lavalink.youtube.clients.skeleton.Client;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.CookieStore;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.COMMON;
+import static dev.lavalink.youtube.http.YoutubeOauth2Handler.OAUTH_INJECT_CONTEXT_ATTRIBUTE;
 
 public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
   private static final Logger log = LoggerFactory.getLogger(YoutubeHttpContextFilter.class);
@@ -20,11 +22,16 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
   private static final String ATTRIBUTE_RESET_RETRY = "isResetRetry";
   public static final String ATTRIBUTE_USER_AGENT_SPECIFIED = "clientUserAgent";
   public static final String ATTRIBUTE_VISITOR_DATA_SPECIFIED = "clientVisitorData";
+  public static final String ATTRIBUTE_CIPHER_REQUEST_SPECIFIED = "remoteCipherRequest";
 
   private static final HttpContextRetryCounter retryCounter = new HttpContextRetryCounter("yt-token-retry");
 
   private YoutubeAccessTokenTracker tokenTracker;
   private YoutubeOauth2Handler oauth2Handler;
+
+  private String remoteCipherPass;
+  private String remoteCipherUserAgent;
+  private String pluginVersion;
 
   public void setTokenTracker(@NotNull YoutubeAccessTokenTracker tokenTracker) {
     this.tokenTracker = tokenTracker;
@@ -33,6 +40,15 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
   public void setOauth2Handler(@NotNull YoutubeOauth2Handler oauth2Handler) {
     this.oauth2Handler = oauth2Handler;
   }
+
+  public void setCipherConfig(@Nullable String remotePass,
+                              @Nullable String userAgent,
+                              @NotNull String pluginVersion) {
+    this.remoteCipherPass = remotePass;
+    this.remoteCipherUserAgent = userAgent;
+    this.pluginVersion = pluginVersion;
+  }
+
 
   @Override
   public void onContextOpen(HttpClientContext context) {
@@ -68,7 +84,17 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
 
     String userAgent = context.getAttribute(ATTRIBUTE_USER_AGENT_SPECIFIED, String.class);
 
-    if (!request.getURI().getHost().contains("googlevideo")) {
+    if (isRemoteCipherRequest(context)) {
+      if (!DataFormatTools.isNullOrEmpty(remoteCipherPass)) {
+        request.addHeader("Authorization", remoteCipherPass);
+      }
+
+      if (!DataFormatTools.isNullOrEmpty(remoteCipherUserAgent)) {
+        request.addHeader("User-Agent", remoteCipherUserAgent);
+      }
+
+      request.addHeader("Plugin-Version", pluginVersion);
+    } else if (!request.getURI().getHost().contains("googlevideo")) {
       if (userAgent != null) {
         request.setHeader("User-Agent", userAgent);
 
@@ -79,7 +105,18 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
         context.removeAttribute(ATTRIBUTE_USER_AGENT_SPECIFIED);
       }
 
-      oauth2Handler.applyToken(request);
+      boolean isRequestFromOauthedClient = context.removeAttribute(Client.OAUTH_CLIENT_ATTRIBUTE) == Boolean.TRUE;
+
+      if (isRequestFromOauthedClient && Client.PLAYER_URL.equals(request.getURI().toString())) {
+        // Look at the userdata for any provided oauth-token
+        String oauthToken = context.getAttribute(OAUTH_INJECT_CONTEXT_ATTRIBUTE, String.class);
+        // only apply the token to /player requests.
+        if (oauthToken != null && !oauthToken.isEmpty()) {
+          oauth2Handler.applyToken(request, oauthToken);
+        } else {
+          oauth2Handler.applyToken(request);
+        }
+      }
     }
 
 //    try {
@@ -101,9 +138,6 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
   public boolean onRequestResponse(HttpClientContext context,
                                    HttpUriRequest request,
                                    HttpResponse response) {
-    if (response.getStatusLine().getStatusCode() == 429) {
-      throw new FriendlyException("This IP address has been blocked by YouTube (429).", COMMON, null);
-    }
 
 //    if (tokenTracker.isTokenFetchContext(context) || retryCounter.getRetryCount(context) >= 1) {
 //      return false;
@@ -124,5 +158,9 @@ public class YoutubeHttpContextFilter extends BaseYoutubeHttpContextFilter {
     }
 
     return false;
+  }
+
+  private boolean isRemoteCipherRequest(HttpClientContext context) {
+    return context.removeAttribute(ATTRIBUTE_CIPHER_REQUEST_SPECIFIED) == Boolean.TRUE;
   }
 }

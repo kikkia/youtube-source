@@ -2,6 +2,7 @@ package dev.lavalink.youtube;
 
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
+import com.sedmelluq.discord.lavaplayer.tools.DataFormatTools;
 import com.sedmelluq.discord.lavaplayer.tools.ExceptionTools;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity;
@@ -13,7 +14,9 @@ import com.sedmelluq.discord.lavaplayer.track.AudioReference;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import dev.lavalink.youtube.UrlTools.UrlInfo;
-import dev.lavalink.youtube.cipher.SignatureCipherManager;
+import dev.lavalink.youtube.cipher.LocalSignatureCipherManager;
+import dev.lavalink.youtube.cipher.RemoteCipherManager;
+import dev.lavalink.youtube.cipher.CipherManager;
 import dev.lavalink.youtube.clients.*;
 import dev.lavalink.youtube.clients.skeleton.Client;
 import dev.lavalink.youtube.http.YoutubeAccessTokenTracker;
@@ -31,9 +34,12 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.SUSPICIOUS;
 
@@ -46,6 +52,12 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
     private static final Logger log = LoggerFactory.getLogger(YoutubeAudioSourceManager.class);
     public static final String SEARCH_PREFIX = "ytsearch:";
     public static final String MUSIC_SEARCH_PREFIX = "ytmsearch:";
+
+    public static final Client[] DEFAULT_CLIENTS = new Client[] {
+        new Music(), new AndroidVr(), new Web(), new WebEmbedded()
+    };
+
+    private static boolean loggedOauthClientNoAccountWarning = false;
 
     private static final String PROTOCOL_REGEX = "(?:http://|https://|)";
     private static final String DOMAIN_REGEX = "(?:www\\.|m\\.|music\\.|)youtube\\.com";
@@ -65,9 +77,9 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
     protected final boolean allowDirectPlaylistIds;
     protected final Client[] clients;
 
-    protected YoutubeHttpContextFilter contextFilter;
     protected YoutubeOauth2Handler oauth2Handler;
-    protected SignatureCipherManager cipherManager;
+    protected YoutubeHttpContextFilter contextFilter;
+    protected CipherManager cipherManager;
 
     public YoutubeAudioSourceManager() {
         this(true);
@@ -78,8 +90,7 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
     }
 
     public YoutubeAudioSourceManager(boolean allowSearch, boolean allowDirectVideoIds, boolean allowDirectPlaylistIds) {
-        // query order: music -> web -> androidtestsuite -> tvhtml5embedded
-        this(allowSearch, allowDirectVideoIds, allowDirectPlaylistIds, new Music(), new Web(), new AndroidTestsuite(), new TvHtml5Embedded());
+        this(allowSearch, allowDirectVideoIds, allowDirectPlaylistIds, DEFAULT_CLIENTS);
     }
 
     /**
@@ -129,21 +140,26 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
         );
     }
 
-    public YoutubeAudioSourceManager(YoutubeSourceOptions options,
+    public YoutubeAudioSourceManager(@NotNull YoutubeSourceOptions options,
                                      @NotNull Client... clients) {
         this.httpInterfaceManager = HttpClientTools.createCookielessThreadLocalManager();
         this.allowSearch = options.isAllowSearch();
         this.allowDirectVideoIds = options.isAllowDirectVideoIds();
         this.allowDirectPlaylistIds = options.isAllowDirectPlaylistIds();
         this.clients = clients;
-        this.cipherManager = new SignatureCipherManager();
         this.oauth2Handler = new YoutubeOauth2Handler(httpInterfaceManager);
 
         contextFilter = new YoutubeHttpContextFilter();
         contextFilter.setTokenTracker(new YoutubeAccessTokenTracker(httpInterfaceManager));
         contextFilter.setOauth2Handler(oauth2Handler);
-
         httpInterfaceManager.setHttpContextFilter(contextFilter);
+
+        if (!DataFormatTools.isNullOrEmpty(options.getRemoteCipherUrl())) {
+            contextFilter.setCipherConfig(options.getRemoteCipherPassword(), options.getRemoteCipherUserAgent(), YoutubeSource.VERSION);
+            this.cipherManager = new RemoteCipherManager(options.getRemoteCipherUrl());
+        } else {
+            this.cipherManager = new LocalSignatureCipherManager();
+        }
     }
 
     @Override
@@ -169,6 +185,12 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
      */
     public void useOauth2(@Nullable String refreshToken, boolean skipInitialization) {
         oauth2Handler.setRefreshToken(refreshToken, skipInitialization);
+
+        if (Arrays.stream(clients).noneMatch(Client::supportsOAuth)) {
+            log.warn("OAuth has been enabled without registering any OAuth-compatible clients. " +
+                "Please consult https://github.com/lavalink-devs/youtube-source?tab=readme-ov-file#available-clients for a list of " +
+                "OAuth-compatible clients.");
+        }
     }
 
     @Nullable
@@ -193,7 +215,8 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
 
     @Nullable
     protected AudioItem loadItemOnce(@NotNull AudioReference reference) {
-        Throwable lastException = null;
+        AudioItem item = null;
+        List<ClientException> exceptions = new ArrayList<>();
 
         try (HttpInterface httpInterface = httpInterfaceManager.getInterface()) {
             Router router = getRouter(httpInterface, reference.identifier);
@@ -211,31 +234,45 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
                     continue;
                 }
 
+                boolean shouldLogOauthWarning = client.supportsOAuth() && !loggedOauthClientNoAccountWarning &&
+                    !oauth2Handler.hasAccessToken() && client.getOptions().getPlayback();
+
+                if (shouldLogOauthWarning) {
+                    loggedOauthClientNoAccountWarning = true;
+                    log.warn("!!! You are using an OAuth-enabled client without a valid OAuth token! This client may not play videos!");
+                }
+
                 log.debug("Attempting to load {} with client \"{}\"", reference.identifier, client.getIdentifier());
+                httpInterface.getContext().setAttribute(Client.OAUTH_CLIENT_ATTRIBUTE, client.supportsOAuth());
 
                 try {
-                    AudioItem item = router.route(client);
-
-                    if (item != null) {
-                        return item;
-                    }
+                    item = router.route(client);
                 } catch (CannotBeLoaded cbl) {
                     throw ExceptionTools.wrapUnfriendlyExceptions("This video cannot be loaded.", Severity.SUSPICIOUS, cbl.getCause());
                 } catch (Throwable t) {
                     log.debug("Client \"{}\" threw a non-fatal exception, storing and proceeding...", client.getIdentifier(), t);
-                    t.addSuppressed(ClientInformation.create(client));
-                    lastException = t;
+                    exceptions.add(new ClientException(t.getMessage(), client, t));
+                }
+
+                if (item != null) {
+                    break;
                 }
             }
         } catch (IOException e) {
             throw ExceptionTools.toRuntimeException(e);
         }
 
-        if (lastException != null) {
-            throw ExceptionTools.wrapUnfriendlyExceptions("This video cannot be loaded.", SUSPICIOUS, lastException);
+        if (!exceptions.isEmpty()) {
+            if (item == null) {
+                throw new AllClientsFailedException(exceptions);
+            }
+
+            String exceptionSummary = exceptions.stream().map(ClientException::getFormattedMessage).collect(Collectors.toList()).toString();
+
+            log.debug("Exceptions suppressed whilst loading {}: {}", reference.identifier, exceptionSummary);
         }
 
-        return null;
+        return item;
     }
 
     @Nullable
@@ -273,7 +310,14 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
                 } else if ("/playlist".equals(urlInfo.path)) {
                     String playlistId = urlInfo.parameters.get("list");
 
-                    if (playlistId != null) return (client) -> client.loadPlaylist(this, httpInterface, playlistId, null);
+                    if (playlistId != null) {
+                        if (playlistId.startsWith("RD")) { // mix handling
+                            String videoId = playlistId.substring(2);
+                            return (client) -> client.loadMix(this, httpInterface, playlistId, videoId);
+                        }
+
+                        return (client) -> client.loadPlaylist(this, httpInterface, playlistId, null);
+                    }
                 } else if ("/watch_videos".equals(urlInfo.path)) {
                     String videoIds = urlInfo.parameters.get("video_ids");
 
@@ -348,8 +392,25 @@ public class YoutubeAudioSourceManager implements AudioSourceManager {
     }
 
     @NotNull
-    public SignatureCipherManager getCipherManager() {
+    public CipherManager getCipherManager() {
         return cipherManager;
+    }
+
+    /**
+     * Gets the cipher manager as a {@link RemoteCipherManager} instance, if applicable, otherwise null.
+     * @return The cipher manager as a {@link RemoteCipherManager} instance or null.
+     */
+    @Nullable
+    public RemoteCipherManager getRemoteCipherManager() {
+        if (cipherManager instanceof RemoteCipherManager) {
+            return (RemoteCipherManager) cipherManager;
+        }
+
+        return null;
+    }
+
+    public void setCipherManager(@NotNull CipherManager cipherManager) {
+        this.cipherManager = cipherManager;
     }
 
     /**

@@ -18,6 +18,8 @@ Which clients are used is entirely configurable.
   - Information on using OAuth tokens with `youtube-source`.
 - [Using a poToken](#using-a-potoken)
   - Information on using a `poToken` with `youtube-source`.
+- [Using a remote cipher server](#using-a-remote-cipher-server)
+  - Information on using a remote cipher server with `youtube-source`.
 - [REST Routes (`plugin` only)](#rest-routes-plugin-only)
   - Information on the REST routes provided by the `youtube-source` plugin module.
 - [Migration Information](#migration-from-lavaplayers-built-in-youtube-source)
@@ -154,9 +156,9 @@ plugins:
     # Clients are queried in the order they are given (so the first client is queried first and so on...)
     clients:
       - MUSIC
-      - ANDROID_TESTSUITE
+      - ANDROID_VR
       - WEB
-      - TVHTML5EMBEDDED
+      - WEBEMBEDDED 
 ```
 
 ### Advanced Options
@@ -173,7 +175,7 @@ plugins:
         # Example: Disabling a client's playback capabilities.
         playback: false
         videoLoading: false # Disables loading of videos for this client. A client may still be used for playback even if this is set to 'false'.
-      TVHTML5EMBEDDED:
+      WEBEMBEDDED:
         # Example: Configuring a client to exclusively be used for video loading and playback.
         playlistLoading: false # Disables loading of playlists and mixes.
         searching: false # Disables the ability to search for videos.
@@ -182,34 +184,23 @@ plugins:
 ## Available Clients
 Currently, the following clients are available for use:
 
-- `MUSIC`
-  - ✔ Provides support for searching YouTube music (`ytmsearch:`).
-  - ❌ Cannot be used for playback, or playlist/mix/livestream loading.
-- `WEB`
-  - ✔ Opus formats.
-- `WEBEMBEDDED`
-  - ✔ Opus formats.
-  - ❌ No mix/playlist/search support.
-- `ANDROID`
-  - ❌ Heavily restricted, frequently dysfunctional.
-- `ANDROID_TESTSUITE`
-  - ✔ Opus formats.
-  - ❌ No mix/playlist/livestream support.
-- `ANDROID_LITE`
-  - ❌ No Opus formats (requires transcoding).
-  - ❌ No mix/playlist/livestream support.
-- `ANDROID_MUSIC`
-  - ✔ Opus formats.
-  - ❌ No playlist/livestream support.
-- `MEDIA_CONNECT`
-  - ❌ No Opus formats (requires transcoding).
-  - ❌ No mix/playlist/search support.
-- `IOS`
-  - ❌ No Opus formats (requires transcoding).
-- `TVHTML5EMBEDDED`
-  - ✔ Opus formats.
-  - ✔ Age-restricted video playback.
-  - ❌ No playlist support.
+| Identifier        | Opus Formats | OAuth | Age-restriction Support | Playback Support | Metadata Support             | Additional Notes                                     |
+|-------------------|--------------|-------|-------------------------|------------------|------------------------------|------------------------------------------------------|
+| `MUSIC`           | No           | No    | No                      | No               | Search                       | YouTube music search support via `ytmsearch:` prefix |
+| `WEB`             | Yes          | No    | No                      | Yes + Livestream | Video, Search, Playlist, Mix |                                                      |
+| `MWEB`            | Yes          | No    | No                      | Yes + Livestream | Video, Search, Playlist, Mix |                                                      |
+| `WEBEMBEDDED`     | Yes          | No    | Limited                 | Yes + Livestream | Video                        |                                                      |
+| `ANDROID`         | Yes          | No    | No                      | Yes + Livestream | Video, Search, Playlist, Mix | Heavily restricted, frequently dysfunctional         |
+| `ANDROID_MUSIC`   | Yes          | No    | No                      | Yes              | Video, Search, Mix           |                                                      |
+| `ANDROID_VR`      | Yes          | No    | No                      | Yes + Livestream | Video, Search, Playlist, Mix |                                                      |
+| `IOS`             | No           | No    | No                      | Yes + Livestream | Video, Search, Playlist, Mix |                                                      |
+| `TV`              | Yes          | Yes   | With OAuth              | Yes + Livestream | None                         | Playback requires sign-in                            |
+| `TVHTML5EMBEDDED` | Yes          | Yes   | With OAuth              | Yes + Livestream | Video, Search, Mix           | Playback requires sign-in                            |
+
+> [!NOTE]
+> Clients that do not return Opus formats will require transcoding.
+> Livestreams do not yield Opus formats so will always require transcoding.
+
 
 ## Using OAuth Tokens
 You may notice that some requests are flagged by YouTube, causing an error message asking you to sign in to confirm you're not a bot.
@@ -218,7 +209,7 @@ of efficacy. **You do _not_ need to use `poToken` with OAuth.**
 
 > [!WARNING]
 > Similar to the `poToken` method, this is NOT a silver bullet solution, and worst case could get your account terminated!
-> For this reason, it is advised that **you use burner accounts and NOT your primary!**.
+> For this reason, it is advised that **you use burner accounts and NOT your primary!**
 > This method may also trigger ratelimit errors if used in a high traffic environment.
 > USE WITH CAUTION!
 
@@ -267,6 +258,17 @@ plugins:
       # skipInitialization: true
 ```
 
+### Passing an oauth token from your client
+Another option to use oauth is by using oauth access tokens that are managed from your client. In this case your 
+bot/client provides LavaLink with the token to use when playing a track. To do this simply add the oauth access token 
+to a track's [userData](https://lavalink.dev/api/rest#track) field in a json format when updating the player to 
+play a track like:
+```json
+{
+  "oauth-token": "access token to use"
+}
+```
+
 ## Using a `poToken`
 A `poToken`, also known as a "Proof of Origin Token" is a way to identify what requests originate from.
 In YouTube's case, this is sent as a JavaScript challenge that browsers must evaluate, and send back the resolved
@@ -280,7 +282,7 @@ to try and work around having automated requests blocked.
 
 
 > [!NOTE]
-> A `poToken` is not a silver bullet, and currently it only applies to requests made via the `WEB` client.
+> A `poToken` is not a silver bullet, and currently it only applies to requests made via the `WEB` & `WEBEMBEDDED` client.
 > You do not need to specify a `poToken` if using OAuth, and vice versa.
 
 Specifying the token is as simple as doing:
@@ -298,6 +300,33 @@ plugins:
     pot:
       token: "paste your po_token here"
       visitorData: "paste your visitor_data here"
+```
+
+## Using a remote cipher server
+
+It becomes harder and harder to keep up with YouTube's cipher changes, as they become more frequent and complex.
+To help with this, you can use a remote cipher server to handle signature deciphering for you.
+You can use [yt-cipher](https://github.com/kikkia/yt-cipher), which is a simple Deno server that exposes a REST API for deciphering signatures.
+Check out the repository for more information on how to set it up.
+
+If you want to implement your own, you can follow the [yt-cipher API specification](https://github.com/kikkia/yt-cipher#api-specification).
+
+### Lavaplayer
+```java
+YoutubeSourceOptions options = new YoutubeSourceOptions()
+     // The base URL of your remote cipher server & the password to authenticate with your remote cipher server, along with an identifier for metrics.
+    .setRemoteCipher("http://localhost:8001", "your_secret_password", "user agent");
+YoutubeAudioSourceManager sourceManager = new YoutubeAudioSourceManager(options, ...);
+```
+
+### Lavalink
+```yaml
+plugins:
+  youtube:
+    remoteCipher:
+      url: "http://localhost:8001" # The base URL of your remote cipher server.
+      password: "your_secret_password" # The password to authenticate with your remote cipher server.
+      userAgent: "your_service_name" # Optional user-agent header, used for metrics on the backend. 
 ```
 
 ## REST routes (`plugin` only)
@@ -358,6 +387,28 @@ If `videoId` could not be found or loaded, or the `itag` does not exist, or if n
 Otherwise:
 `200 - OK` accompanied by the selected format stream (audio or video). `Content-Type` header will be set appropriately.
 
+### `GET` `/youtube/oauth/{refreshToken}`
+
+Response:
+
+If the `refreshToken` is invalid, expired, or cannot be processed:
+`500 - Internal Server Error`
+
+If the refresh process succeeds and a new access token is generated:
+`200 - OK` accompanied by the new access token in JSON format.
+
+Example response:
+```json
+{
+  "access_token": "AccessToken",
+  "expires_in": 69420,
+  "scope": "used scope",
+  "token_type": "type"
+}
+```
+
+
+
 ## Migration from Lavaplayer's built-in YouTube source
 
 This client is intended as a direct replacement for Lavaplayer's built-in `YoutubeAudioSourceManager`,
@@ -390,10 +441,11 @@ In addition, there are a few significant changes to note:
   the source manager with (e.g. an overridden `YoutubeTrackDetailsLoader`), this **is not** compatible
   with this source manager.
 
-- Support for logging into accounts as a means of playing age-restricted tracks has been removed, with the
-  `TVHTML5EMBEDDED` client instead being the preferred workaround. There were a large number of
-  reasons for this change, but not least the fact that logging in was slowly becoming problematic and deprecated
-  on the YouTube backend. The amount of code to support this feature meant that it has been axed.
+## Versioning Policy
+This project follows [Semantic Versioning](https://semver.org/), except in the case of [client](#available-clients) removal.
+Typically, clients are not removed unless there is good reason, such as being deprecated, irreparably broken or removed from YouTube's client lifecycle.
+In such scenarios, we anticipate that you have ceased usage of such clients prior to their removal, so do not expect any code breakage,
+however we advise that you periodically check and keep your client list up to date due to this.
 
 ## Additional Support
 If you need additional help with using this source, that's not covered here or in any of the issues, 

@@ -6,7 +6,7 @@ import com.sedmelluq.discord.lavaplayer.tools.Units;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
 import dev.lavalink.youtube.CannotBeLoaded;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
-import dev.lavalink.youtube.cipher.SignatureCipherManager.CachedPlayerScript;
+import dev.lavalink.youtube.cipher.CipherManager.CachedPlayerScript;
 import dev.lavalink.youtube.track.format.StreamFormat;
 import dev.lavalink.youtube.track.format.TrackFormats;
 import org.apache.http.entity.ContentType;
@@ -37,7 +37,7 @@ public abstract class ThumbnailStreamingNonMusicClient extends ThumbnailNonMusic
     public TrackFormats loadFormats(@NotNull YoutubeAudioSourceManager source,
                                     @NotNull HttpInterface httpInterface,
                                     @NotNull String videoId) throws CannotBeLoaded, IOException {
-        JsonBrowser json = loadTrackInfoFromInnertube(source, httpInterface, videoId, null);
+        JsonBrowser json = loadTrackInfoFromInnertube(source, httpInterface, videoId, null, true);
         JsonBrowser playabilityStatus = json.get("playabilityStatus");
         JsonBrowser videoDetails = json.get("videoDetails");
         CachedPlayerScript playerScript = source.getCipherManager().getCachedPlayerScript(httpInterface);

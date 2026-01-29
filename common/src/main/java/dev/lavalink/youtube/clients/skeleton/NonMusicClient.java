@@ -8,14 +8,17 @@ import com.sedmelluq.discord.lavaplayer.track.*;
 import dev.lavalink.youtube.CannotBeLoaded;
 import dev.lavalink.youtube.OptionDisabledException;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
-import dev.lavalink.youtube.cipher.SignatureCipher;
-import dev.lavalink.youtube.cipher.SignatureCipherManager;
-import dev.lavalink.youtube.cipher.SignatureCipherManager.CachedPlayerScript;
+import dev.lavalink.youtube.cipher.CipherManager;
+import dev.lavalink.youtube.cipher.CipherManager.CachedPlayerScript;
 import dev.lavalink.youtube.clients.ClientConfig;
 import dev.lavalink.youtube.track.TemporalInfo;
+import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,6 +30,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.COMMON;
@@ -81,50 +86,99 @@ public abstract class NonMusicClient implements Client {
                                                      @NotNull HttpInterface httpInterface,
                                                      @NotNull String videoId,
                                                      @Nullable PlayabilityStatus status) throws CannotBeLoaded, IOException {
-        SignatureCipherManager cipherManager = source.getCipherManager();
-        CachedPlayerScript playerScript = cipherManager.getCachedPlayerScript(httpInterface);
-        SignatureCipher signatureCipher = cipherManager.getCipherScript(httpInterface, playerScript.url);
+        // retain backwards-compatible behaviour for callers that do not use the new method with the additional parameter.
+        return loadTrackInfoFromInnertube(source, httpInterface, videoId, status, true);
+    }
+
+    /**
+     * Retrieve raw JSON data for a specific video by its ID.
+     * @param source The source manager linked to this client.
+     * @param httpInterface The interface to use for HTTP requests.
+     * @param videoId The ID of the video to retrieve information for.
+     * @param status The last playability status, or {@code null} if an attempt to retrieve
+     *               information has not been made yet.
+     * @param validatePlayabilityStatus Whether to validate playability status. This may be {@code false}
+     *                                  in situations where only video metadata is required. If video data
+     *                                  does not exist, this is forcefully checked regardless of provided value.
+     * @return The raw JSON data as received from YouTube.
+     * @throws CannotBeLoaded If a video does not exist, is private, or otherwise inaccessible.
+     * @throws IOException If a HTTP request fails, etc.
+     */
+    @NotNull
+    protected JsonBrowser loadTrackInfoFromInnertube(@NotNull YoutubeAudioSourceManager source,
+                                                     @NotNull HttpInterface httpInterface,
+                                                     @NotNull String videoId,
+                                                     @Nullable PlayabilityStatus status,
+                                                     boolean validatePlayabilityStatus) throws CannotBeLoaded, IOException {
+        CipherManager cipherManager = source.getCipherManager();
 
         ClientConfig config = getBaseClientConfig(httpInterface);
 
-        if (status == null) {
-            // Only add embed info if the status is not NON_EMBEDDABLE.
+        // Skip embed workaround for OAuth-supporting clients to avoid EMBEDDER_IDENTITY_DENIED errors.
+        // OAuth authentication should be sufficient without pretending to be an embedded player.
+        if (!supportsOAuth() && (status == null || status != PlayabilityStatus.NON_EMBEDDABLE)) {
             config.withClientField("clientScreen", "EMBED")
                 .withThirdPartyEmbedUrl("https://google.com");
         }
 
-        String payload = config.withRootField("videoId", videoId)
+        config.withRootField("videoId", videoId)
             .withRootField("racyCheckOk", true)
-            .withRootField("contentCheckOk", true)
-            .withRootField("params", getPlayerParams())
-            .withPlaybackSignatureTimestamp(signatureCipher.scriptTimestamp)
-            .setAttributes(httpInterface)
-            .toJsonString();
+            .withRootField("contentCheckOk", true);
+
+        String params = getPlayerParams();
+
+        if (params != null) {
+            config.withRootField("params", params);
+        }
+
+        // For embedded clients, fetch and include encryptedHostFlags to avoid playback restrictions.
+        if (isEmbedded()) {
+            String encryptedHostFlags = fetchEncryptedHostFlags(videoId);
+            if (encryptedHostFlags != null) {
+                config.withEncryptedHostFlags(encryptedHostFlags);
+            }
+        }
+
+        String payload = config.setAttributes(httpInterface).toJsonString();
+
+        if (requirePlayerScript()) {
+            CachedPlayerScript playerScript = cipherManager.getCachedPlayerScript(httpInterface);
+
+            payload = config.withPlaybackSignatureTimestamp(playerScript.signatureTimestamp)
+                    .setAttributes(httpInterface)
+                    .toJsonString();
+        }
 
         HttpPost request = new HttpPost(PLAYER_URL);
         request.setEntity(new StringEntity(payload, "UTF-8"));
 
         JsonBrowser json = loadJsonResponse(httpInterface, request, "player api response");
         JsonBrowser playabilityJson = json.get("playabilityStatus");
-        // fix: Make this method throw if a status was supplied (typically when we recurse).
-        PlayabilityStatus playabilityStatus = getPlayabilityStatus(playabilityJson, status != null);
-
-        // All other branches should've been caught by getPlayabilityStatus().
-        // An exception will be thrown if we can't handle it.
-        if (playabilityStatus == PlayabilityStatus.NON_EMBEDDABLE) {
-            if (isEmbedded()) {
-                throw new FriendlyException("Loading information for for video failed", Severity.COMMON,
-                    new RuntimeException("Non-embeddable video cannot be loaded by embedded client"));
-            }
-
-            json = loadTrackInfoFromInnertube(source, httpInterface, videoId, playabilityStatus);
-            getPlayabilityStatus(json.get("playabilityStatus"), true);
-        }
-
         JsonBrowser videoDetails = json.get("videoDetails");
 
+        // we should always check playabilityStatus if videoDetails is null because it could contain important
+        // information as to why, which prevents false reports about this not working as intended etc etc.
+        if (validatePlayabilityStatus || videoDetails.isNull()) {
+            // fix: Make this method throw if a status was supplied (typically when we recurse).
+            PlayabilityStatus playabilityStatus = getPlayabilityStatus(playabilityJson, status != null);
+
+            // All other branches should've been caught by getPlayabilityStatus().
+            // An exception will be thrown if we can't handle it.
+            if (playabilityStatus == PlayabilityStatus.NON_EMBEDDABLE) {
+                if (isEmbedded()) {
+                    throw new FriendlyException("Loading information for video failed", Severity.COMMON,
+                        new RuntimeException("Non-embeddable video cannot be loaded by embedded client"));
+                }
+
+                // forcefully set validatePlayabilityStatus to true because the code is at this point for a reason.
+                // we want to make sure the re-check gets an accurate reason for any playability issues.
+                json = loadTrackInfoFromInnertube(source, httpInterface, videoId, playabilityStatus, true);
+                getPlayabilityStatus(json.get("playabilityStatus"), true);
+            }
+        }
+
         if (videoDetails.isNull()) {
-            throw new FriendlyException("Loading information for for video failed", Severity.SUSPICIOUS,
+            throw new FriendlyException("Loading information for video failed", Severity.SUSPICIOUS,
                 new RuntimeException("Missing videoDetails block, JSON: " + json.format()));
         }
 
@@ -137,6 +191,37 @@ public abstract class NonMusicClient implements Client {
         }
 
         return json;
+    }
+
+    /**
+     * Fetches the encryptedHostFlags from the YouTube embed page.
+     * This is required for embedded clients to avoid playback restrictions.
+     *
+     * @param videoId The video ID to fetch the embed page for.
+     * @return The encryptedHostFlags value, or null if not found.
+     */
+    @Nullable
+    protected String fetchEncryptedHostFlags(@NotNull String videoId) {
+        String embedUrl = "https://www.youtube.com/embed/" + videoId;
+
+        try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
+            HttpGet request = new HttpGet(embedUrl);
+            request.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
+            HttpResponse response = httpClient.execute(request);
+            String html = EntityUtils.toString(response.getEntity());
+
+            Pattern pattern = Pattern.compile("\"encryptedHostFlags\":\"([^\"]+)\"");
+            Matcher matcher = pattern.matcher(html);
+
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+        } catch (IOException e) {
+            log.debug("Failed to fetch encryptedHostFlags for video {}", videoId, e);
+        }
+
+        return null;
     }
 
     @NotNull
@@ -299,13 +384,19 @@ public abstract class NonMusicClient implements Client {
     @Nullable
     protected AudioTrack extractAudioTrack(@NotNull JsonBrowser json,
                                            @NotNull YoutubeAudioSourceManager source) {
+        // this entire function needs redoing. Ideally being able to specify the paths of known JSON layouts
+        // rather than doing a load of null checks and substitutions.
+
         // Ignore if it's not a track or if it's a livestream
         if (json.isNull() || json.get("lengthText").isNull() || !json.get("unplayableText").isNull()) return null;
 
         String videoId = json.get("videoId").text();
-        JsonBrowser titleJson = json.get("title");
+        JsonBrowser titleJson = !json.get("headline").isNull() ? json.get("headline") : json.get("title");
         String title = DataFormatTools.defaultOnNull(titleJson.get("runs").index(0).get("text").text(), titleJson.get("simpleText").text());
-        String author = json.get("longBylineText").get("runs").index(0).get("text").text();
+        String author = DataFormatTools.defaultOnNull(
+            json.get("longBylineText").get("runs").index(0).get("text").text(),
+            json.get("shortBylineText").get("runs").index(0).get("text").text()
+        );
 
         if (author == null) {
             log.debug("Author field is null, client: {}, json: {}", getIdentifier(), json.format());
@@ -338,7 +429,7 @@ public abstract class NonMusicClient implements Client {
             throw new OptionDisabledException("Video loading is disabled for this client");
         }
 
-        JsonBrowser json = loadTrackInfoFromInnertube(source, httpInterface, videoId, null);
+        JsonBrowser json = loadTrackInfoFromInnertube(source, httpInterface, videoId, null, false);
         JsonBrowser playabilityStatus = json.get("playabilityStatus");
         JsonBrowser videoDetails = json.get("videoDetails");
 
@@ -463,6 +554,7 @@ public abstract class NonMusicClient implements Client {
     public AudioItem loadSearchMusic(@NotNull YoutubeAudioSourceManager source,
                                      @NotNull HttpInterface httpInterface,
                                      @NotNull String searchQuery) {
-        throw new UnsupportedOperationException();
+        throw new FriendlyException("This client cannot search music", Severity.COMMON,
+            new RuntimeException(getIdentifier() + " cannot be used to search music"));
     }
 }

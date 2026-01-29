@@ -6,7 +6,7 @@ import com.sedmelluq.discord.lavaplayer.tools.Units;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
 import dev.lavalink.youtube.CannotBeLoaded;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
-import dev.lavalink.youtube.cipher.SignatureCipherManager.CachedPlayerScript;
+import dev.lavalink.youtube.cipher.CipherManager.CachedPlayerScript;
 import dev.lavalink.youtube.track.format.StreamFormat;
 import dev.lavalink.youtube.track.format.TrackFormats;
 import org.apache.http.entity.ContentType;
@@ -32,7 +32,7 @@ public abstract class StreamingNonMusicClient extends NonMusicClient {
     public TrackFormats loadFormats(@NotNull YoutubeAudioSourceManager source,
                                     @NotNull HttpInterface httpInterface,
                                     @NotNull String videoId) throws CannotBeLoaded, IOException {
-        JsonBrowser json = loadTrackInfoFromInnertube(source, httpInterface, videoId, null);
+        JsonBrowser json = loadTrackInfoFromInnertube(source, httpInterface, videoId, null, true);
         JsonBrowser playabilityStatus = json.get("playabilityStatus");
         JsonBrowser videoDetails = json.get("videoDetails");
         CachedPlayerScript playerScript = source.getCipherManager().getCachedPlayerScript(httpInterface);
@@ -53,11 +53,15 @@ public abstract class StreamingNonMusicClient extends NonMusicClient {
         boolean anyFailures = false;
 
         for (JsonBrowser merged : mergedFormats.values()) {
-            anyFailures = anyFailures || !extractFormat(merged, formats, isLive);
+            if (!extractFormat(merged, formats, isLive)) {
+                anyFailures = true;
+            }
         }
 
         for (JsonBrowser adaptive : adaptiveFormats.values()) {
-            anyFailures = anyFailures || !extractFormat(adaptive, formats, isLive);
+            if (!extractFormat(adaptive, formats, isLive)) {
+                anyFailures = true;
+            }
         }
 
         if (formats.isEmpty() && anyFailures) {
@@ -81,21 +85,28 @@ public abstract class StreamingNonMusicClient extends NonMusicClient {
             ? decodeUrlEncodedItems(cipher, true)
             : Collections.emptyMap();
 
+        if (DataFormatTools.isNullOrEmpty(url) && DataFormatTools.isNullOrEmpty(cipherInfo.get("url"))) {
+            log.debug("Client '{}' is missing format URL for itag '{}'. SABR response?", getIdentifier(), formatJson.get("itag").text());
+            return false;
+        }
+
         Map<String, String> urlMap = DataFormatTools.isNullOrEmpty(url)
             ? decodeUrlEncodedItems(cipherInfo.get("url"), false)
             : decodeUrlEncodedItems(url, false);
 
         try {
             long contentLength = formatJson.get("contentLength").asLong(CONTENT_LENGTH_UNKNOWN);
+            int itag = (int) formatJson.get("itag").asLong(-1);
 
-            if (contentLength == CONTENT_LENGTH_UNKNOWN && !isLive) {
+            // itag 18 is a legacy format which doesn't have a (valid) content length field.
+            if (contentLength == CONTENT_LENGTH_UNKNOWN && !isLive && itag != 18) {
                 log.debug("Track is not a live stream, but no contentLength in format {}, skipping", formatJson.format());
                 return true; // this isn't considered fatal.
             }
 
             formats.add(new StreamFormat(
                 ContentType.parse(formatJson.get("mimeType").text()),
-                (int) formatJson.get("itag").asLong(-1L),
+                itag,
                 formatJson.get("bitrate").asLong(Units.BITRATE_UNKNOWN),
                 contentLength,
                 formatJson.get("audioChannels").asLong(2),
