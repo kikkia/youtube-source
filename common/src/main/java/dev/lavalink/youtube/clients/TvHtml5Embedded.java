@@ -123,4 +123,10 @@ public class TvHtml5Embedded extends StreamingNonMusicClient {
         throw new FriendlyException("This client cannot load playlists", Severity.COMMON,
             new RuntimeException("TVHTML5_EMBEDDED cannot be used to load playlists"));
     }
+
+    @Override
+    public boolean supportsFormatLoading() {
+        log.warn("TvHtml5Embedded can no longer be used for playback, so format loading has been blocked.");
+        return false;
+    }
 }
