@@ -152,6 +152,14 @@ public abstract class NonMusicClient implements Client {
         HttpPost request = new HttpPost(PLAYER_URL);
         request.setEntity(new StringEntity(payload, "UTF-8"));
 
+        if (supportsOAuth()) {
+            source.getOauth2Handler().applyToken(request);
+        }
+
+        if (supportsOAuth()) {
+            source.getOauth2Handler().applyToken(request);
+        }
+
         JsonBrowser json = loadJsonResponse(httpInterface, request, "player api response");
         JsonBrowser playabilityJson = json.get("playabilityStatus");
         JsonBrowser videoDetails = json.get("videoDetails");
@@ -408,6 +416,21 @@ public abstract class NonMusicClient implements Client {
 
         long duration = DataFormatTools.durationTextToMillis(durationText);
         return buildAudioTrack(source, json, title, author, duration, videoId, false);
+    }
+
+    @Override
+    @NotNull
+    public PlayabilityStatus getPlayabilityStatus(@NotNull JsonBrowser playabilityStatus,
+                                                  boolean throwOnNotOk) throws CannotBeLoaded {
+        try {
+            return Client.super.getPlayabilityStatus(playabilityStatus, throwOnNotOk);
+        } catch (FriendlyException e) {
+            if (e.getMessage().contains("This video requires login.") && supportsOAuth()) {
+                return PlayabilityStatus.REQUIRES_LOGIN;
+            }
+
+            throw e;
+        }
     }
     //</editor-fold>
 
